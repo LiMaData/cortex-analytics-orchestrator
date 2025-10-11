@@ -1,0 +1,8 @@
+{
+  "query": "test query",
+  "result": {
+    "result": "test"
+  },
+  "timestamp": "2025-10-11T10:31:49.386434",
+  "ttl": 3600
+}

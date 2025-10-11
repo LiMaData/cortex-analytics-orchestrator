@@ -1,0 +1,9 @@
+{
+  "query": "What were sales last quarter?",
+  "result": {
+    "revenue": 1000000,
+    "count": 500
+  },
+  "timestamp": "2025-10-11T10:32:27.091685",
+  "ttl": 3600
+}

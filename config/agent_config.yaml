@@ -1,0 +1,30 @@
+# Agent Configuration
+# Agent Configuration
+
+data_agent:
+model: "cortex-analyst"
+timeout: 30
+retry_attempts: 3
+cache_enabled: true
+
+visualization_agent:
+default_chart_type: "plotly"
+theme: "plotly_white"
+color_scheme: "blues"
+height: 500
+width: 800
+
+insight_agent:
+model: "llama3.1-70b"
+temperature: 0.7
+max_tokens: 500
+enable_explanations: true
+
+benchmark_agent:
+comparison_periods: ["week", "month", "quarter", "year"]
+metrics: ["growth_rate", "variance", "trend"]
+
+distribution_agent:
+email_enabled: false
+teams_enabled: false
+default_format: "pdf"

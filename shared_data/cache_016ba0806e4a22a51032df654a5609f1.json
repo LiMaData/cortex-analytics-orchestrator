@@ -1,0 +1,11 @@
+{
+  "query": "shared.context_manager",
+  "result": {
+    "response": "ConversationalResponse(text=\"I found 3 results for your query.\\n\\nTop result: {'id': 1, 'value': 100}\", data=[{'id': 1, 'value': 100}, {'id': 2, 'value': 200}, {'id': 3, 'value': 300}], chart=None, insights=None, metadata={'query': 'shared.context_manager', 'agents_used': ['data'], 'row_count': 3})",
+    "results": {
+      "data": "QueryResult(data=[{'id': 1, 'value': 100}, {'id': 2, 'value': 200}, {'id': 3, 'value': 300}], query='shared.context_manager', row_count=3, execution_time=0.5, metadata={'source': 'mock', 'timestamp': 'now'})"
+    }
+  },
+  "timestamp": "2025-10-11T10:34:25.517406",
+  "ttl": 3600
+}

@@ -1,0 +1,11 @@
+{
+  "query": "Show me customer data",
+  "result": {
+    "response": "ConversationalResponse(text=\"I found 3 results for your query.\\n\\nTop result: {'customer_id': 1, 'name': 'Customer A', 'total_spent': 10000}\", data=[{'customer_id': 1, 'name': 'Customer A', 'total_spent': 10000}, {'customer_id': 2, 'name': 'Customer B', 'total_spent': 8000}, {'customer_id': 3, 'name': 'Customer C', 'total_spent': 6000}], chart=None, insights=None, metadata={'query': 'Show me customer data', 'agents_used': ['data'], 'row_count': 3})",
+    "results": {
+      "data": "QueryResult(data=[{'customer_id': 1, 'name': 'Customer A', 'total_spent': 10000}, {'customer_id': 2, 'name': 'Customer B', 'total_spent': 8000}, {'customer_id': 3, 'name': 'Customer C', 'total_spent': 6000}], query='Show me customer data', row_count=3, execution_time=0.5, metadata={'source': 'mock', 'timestamp': 'now'})"
+    }
+  },
+  "timestamp": "2025-10-11T10:32:03.620979",
+  "ttl": 3600
+}

@@ -1,0 +1,11 @@
+{
+  "query": "What were our top 5 products by revenue last quarter?",
+  "result": {
+    "response": "ConversationalResponse(text=\"I found 5 results for your query.\\n\\nTop result: {'product': 'Product A', 'revenue': 50000, 'units': 100}\", data=[{'product': 'Product A', 'revenue': 50000, 'units': 100}, {'product': 'Product B', 'revenue': 45000, 'units': 90}, {'product': 'Product C', 'revenue': 40000, 'units': 80}, {'product': 'Product D', 'revenue': 35000, 'units': 70}, {'product': 'Product E', 'revenue': 30000, 'units': 60}], chart=None, insights=None, metadata={'query': 'What were our top 5 products by revenue last quarter?', 'agents_used': ['data'], 'row_count': 5})",
+    "results": {
+      "data": "QueryResult(data=[{'product': 'Product A', 'revenue': 50000, 'units': 100}, {'product': 'Product B', 'revenue': 45000, 'units': 90}, {'product': 'Product C', 'revenue': 40000, 'units': 80}, {'product': 'Product D', 'revenue': 35000, 'units': 70}, {'product': 'Product E', 'revenue': 30000, 'units': 60}], query='What were our top 5 products by revenue last quarter?', row_count=5, execution_time=0.5, metadata={'source': 'mock', 'timestamp': 'now'})"
+    }
+  },
+  "timestamp": "2025-10-11T10:32:03.618002",
+  "ttl": 3600
+}
