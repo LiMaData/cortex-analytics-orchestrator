@@ -229,32 +229,3 @@ graph TB
   style Agents fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
   style Tools fill:#fff3e0,stroke:#e65100,stroke-width:2px
   style Outputs fill:#fce4ec,stroke:#880e4f,stroke-width:2px
-
-sequenceDiagram
-  participant User
-  participant ConvOrch as Conversational Orchestrator
-  participant DataAgent as Data Agent
-  participant Cortex as Cortex Analyst
-  participant VizAgent as Visualization Agent
-  participant InsightAgent as Insight Agent
-
-  User->>ConvOrch: "What were top 5 products last quarter?"
-  
-  ConvOrch->>ConvOrch: Analyze intent & route
-  
-  ConvOrch->>DataAgent: Request data
-  DataAgent->>Cortex: Natural language query
-  Cortex->>Cortex: Convert to SQL
-  Cortex-->>DataAgent: Return results
-  DataAgent-->>ConvOrch: Structured data
-  
-  ConvOrch->>VizAgent: Request visualization
-  VizAgent->>VizAgent: Generate Plotly chart
-  VizAgent-->>ConvOrch: Chart object
-  
-  ConvOrch->>InsightAgent: Request analysis
-  InsightAgent->>Cortex: Analyze patterns
-  Cortex-->>InsightAgent: Insights
-  InsightAgent-->>ConvOrch: Key findings
-  
-  ConvOrch-->>User: Complete response with<br/>data + chart + insights
