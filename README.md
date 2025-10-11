@@ -163,6 +163,17 @@ PDF Report Output
 #DataEngineering #AI #Snowflake #Analytics #Python #OpenSource
 
 ## Architecture Overview
+Layout:
+
+┌─────────────────────────────────────────────────────┐
+│  [Snowflake icon]  CORTEX ANALYTICS ORCHESTRATOR    │
+│                                                     │
+│         🤖 ──→ 📊 ──→ 💡 ──→ 📧                   │
+│       Agent  Data  Insight Report                   │
+│                                                     │
+│  Multi-Agent Intelligence • Automated Insights      │
+│  Built on Snowflake Cortex                          │
+└─────────────────────────────────────────────────────┘
 
 ```mermaid
 graph TB
@@ -229,3 +240,6 @@ graph TB
   style Agents fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
   style Tools fill:#fff3e0,stroke:#e65100,stroke-width:2px
   style Outputs fill:#fce4ec,stroke:#880e4f,stroke-width:2px
+
+
+
