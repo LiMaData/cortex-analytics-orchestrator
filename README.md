@@ -28,7 +28,67 @@ Mermaid Diagram (renders automatically on GitHub)
 Add this to your README.md or create docs/architecture.md:
 
 ## Architecture Overview
+- **STEP 1**:minimal (manual chaining).
+```mermaid
+graph TB
+subgraph Entry["🚪 ENTRY POINT"]
+    Notebook["📓 Jupyter Notebook<br/>(Manual Testing)"]
+end
 
+subgraph Agents["🤖 AGENTS"]
+    DataAgent["📊 Data Analyst Agent<br/>Data Cleaning & Stats"]
+    VizAgent["🎨 Visualization Agent<br/>Charts & Dashboards"]
+end
+
+subgraph Outputs["📤 OUTPUTS"]
+    ChartOut["📊 Chart Output"]
+    TextOut["📝 Text Summary"]
+end
+
+Notebook --> DataAgent
+DataAgent --> VizAgent
+VizAgent --> ChartOut
+DataAgent --> TextOut
+
+style Entry fill:#e1f5ff,stroke:#01579b,stroke-width:2px
+style Agents fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
+style Outputs fill:#fce4ec,stroke:#880e4f,stroke-width:2px
+
+```
+- **STEP 2**: introduces the executor.
+```mermaid
+graph TB
+subgraph Entry["🚪 ENTRY POINT"]
+    Notebook["📓 Jupyter Notebook<br/>(Trigger Workflow)"]
+end
+
+subgraph Orchestrator["🎭 ORCHESTRATOR"]
+    Executor["⚙️ Multi-Agent Executor<br/>Workflow Manager"]
+end
+
+subgraph Agents["🤖 AGENTS"]
+    DataAgent["📊 Data Analyst Agent<br/>ETL & Stats"]
+    VizAgent["🎨 Visualization Agent<br/>Charts & Dashboards"]
+end
+
+subgraph Outputs["📤 OUTPUTS"]
+    ChartOut["📊 Chart Output"]
+    TextOut["📝 Text Summary"]
+end
+
+Notebook --> Executor
+Executor --> DataAgent
+Executor --> VizAgent
+DataAgent --> TextOut
+VizAgent --> ChartOut
+
+style Entry fill:#e1f5ff,stroke:#01579b,stroke-width:2px
+style Orchestrator fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+style Agents fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
+style Outputs fill:#fce4ec,stroke:#880e4f,stroke-width:2px
+
+```
+- **STEP 3**:full orchestration with multiple agents and tools.
 ```mermaid
 graph TB
   subgraph Entry["🚪 ENTRY POINTS"]
