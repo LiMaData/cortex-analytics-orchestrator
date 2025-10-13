@@ -91,69 +91,76 @@ style Outputs fill:#fce4ec,stroke:#880e4f,stroke-width:2px
 - **STEP 3**:full orchestration with multiple agents and tools.
 ```mermaid
 graph TB
-  subgraph Entry["🚪 ENTRY POINTS"]
-      Chat["💬 Chat Interface<br/>(Interactive)"]
-      Schedule["📅 Scheduled Tasks<br/>(Weekly Reports)"]
-  end
+%% Entry Point Layer
+subgraph Entry["🚪 ENTRY POINTS"]
+    Chat["💬 Chat Interface<br/>(Interactive)"]
+    Schedule["📅 Scheduled Tasks<br/>(Weekly Reports)"]
+end
 
-  subgraph Orchestrators["🎭 ORCHESTRATION LAYER"]
-      ConvOrch["🗣️ Conversational Orchestrator<br/>━━━━━━━━━━━━━━━<br/>• Q&A Mode<br/>• Dynamic Routing<br/>• Single Response"]
-      DashOrch["📊 Dashboard Orchestrator<br/>━━━━━━━━━━━━━━━<br/>• Batch Mode<br/>• Parallel Execution<br/>• Multi-Chart Output"]
-  end
+%% Orchestrator Layer
+subgraph Orchestrator["🎭 ORCHESTRATOR"]
+    ConvOrch["🗣️ Conversational Orchestrator<br/>• Q&A Mode<br/>• Dynamic Routing"]
+    DashOrch["📊 Dashboard Orchestrator<br/>• Batch Mode<br/>• Parallel Execution"]
+end
 
-  subgraph Agents["🤖 SPECIALIZED AGENTS"]
-      DataAgent["📊 Data Agent<br/>CortexAnalyst Queries"]
-      BenchAgent["📈 Benchmark Agent<br/>Comparative Analysis"]
-      VizAgent["🎨 Visualization Agent<br/>Plotly Charts"]
-      InsightAgent["💡 Insight Generator<br/>AI Pattern Detection"]
-      DistAgent["📧 Distribution Agent<br/>Email & Teams"]
-  end
+%% Agents Layer
+subgraph Agents["🤖 AGENTS"]
+    DataAgent["📊 Data Agent<br/>CortexAnalyst Queries"]
+    BenchAgent["📈 Benchmark Agent<br/>Comparative Analysis"]
+    VizAgent["🎨 Visualization Agent<br/>Plotly Charts"]
+    InsightAgent["💡 Insight Generator<br/>AI Pattern Detection"]
+    DistAgent["📧 Distribution Agent<br/>Email & Teams"]
+end
 
-  subgraph Tools["🛠️ EXECUTION TOOLS"]
-      Cortex["🧠 Cortex Wrapper<br/>(CORTEX.COMPLETE)"]
-      WebSearch["🔍 Web Search API"]
-      Plotly["📉 Plotly Engine"]
-      PDF["📄 PDF Generator"]
-      Notify["📬 Notification APIs"]
-  end
+%% Tools Layer
+subgraph Tools["🛠 TOOLS"]
+    Cortex["🧠 Cortex Wrapper<br/>(CORTEX.COMPLETE)"]
+    WebSearch["🔍 Web Search API"]
+    Plotly["📉 Plotly Engine"]
+    PDF["📄 PDF Generator"]
+    Notify["📬 Notification APIs"]
+end
 
-  subgraph Outputs["📤 OUTPUTS"]
-      TextOut["📝 Text Response"]
-      ChartOut["📊 Single Chart"]
-      PDFOut["📑 Multi-Page PDF"]
-      EmailOut["📧 Email Report"]
-  end
+%% Outputs Layer
+subgraph Outputs["📤 OUTPUTS"]
+    TextOut["📝 Text Response"]
+    ChartOut["📊 Single Chart"]
+    PDFOut["📑 Multi-Page PDF"]
+    EmailOut["📧 Email Report"]
+end
 
-  Chat --> ConvOrch
-  Schedule --> DashOrch
-  
-  ConvOrch --> DataAgent
-  ConvOrch --> BenchAgent
-  ConvOrch --> VizAgent
-  ConvOrch --> InsightAgent
-  
-  DashOrch --> DataAgent
-  DashOrch --> BenchAgent
-  DashOrch --> VizAgent
-  DashOrch --> InsightAgent
-  DashOrch --> DistAgent
-  
-  DataAgent --> Cortex
-  BenchAgent --> Cortex
-  VizAgent --> Plotly
-  InsightAgent --> Cortex
-  DistAgent --> Notify
-  
-  DataAgent --> TextOut
-  VizAgent --> ChartOut
-  DashOrch --> PDFOut
-  DistAgent --> EmailOut
+%% Connections
+Chat --> ConvOrch
+Schedule --> DashOrch
 
-  style Entry fill:#e1f5ff,stroke:#01579b,stroke-width:2px
-  style Orchestrators fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
-  style Agents fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
-  style Tools fill:#fff3e0,stroke:#e65100,stroke-width:2px
-  style Outputs fill:#fce4ec,stroke:#880e4f,stroke-width:2px
+ConvOrch --> DataAgent
+ConvOrch --> BenchAgent
+ConvOrch --> VizAgent
+ConvOrch --> InsightAgent
+
+DashOrch --> DataAgent
+DashOrch --> BenchAgent
+DashOrch --> VizAgent
+DashOrch --> InsightAgent
+DashOrch --> DistAgent
+
+DataAgent --> Cortex
+BenchAgent --> Cortex
+VizAgent --> Plotly
+InsightAgent --> Cortex
+DistAgent --> Notify
+
+DataAgent --> TextOut
+VizAgent --> ChartOut
+DashOrch --> PDFOut
+DistAgent --> EmailOut
+
+%% Styling
+style Entry fill:#e1f5ff,stroke:#01579b,stroke-width:2px
+style Orchestrator fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+style Agents fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
+style Tools fill:#fff3e0,stroke:#e65100,stroke-width:2px
+style Outputs fill:#fce4ec,stroke:#880e4f,stroke-width:2px
 
 ```
 
