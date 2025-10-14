@@ -88,6 +88,25 @@ style Agents fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
 style Outputs fill:#fce4ec,stroke:#880e4f,stroke-width:2px
 
 ```
+### User → MultiAgentExecutor.execute() → 
+  ### ├─ Query Classifier
+  ### ├─ CortexAnalyst (auto-routed)
+  ### ├─ VisualizationAgent (auto-routed)
+  ### └─ Optional: Insight Generator (auto-routed) 
+###  → Unified Output
+
+### Cortex LLM natural language layer is still being fine-tuned for semantic model. 
+### The key achievement is the orchestrated workflow - query classification, intelligent agent routing, and automated visualization."
+
+### Demo 1: Show me email open rates by market for the past month.
+### Demo 2: Show me top 5 markets by sends.
+
+### Next Steps:
+### 1. Fine-tune LLM prompts for better accuracy with semantic model.
+### 2. Add more agents (e.g., DataCleaner, AdvancedVizAgent).
+### 3. Integrate with Streamlit App for live analytics.
+### 4. Implement feedback loop for continuous learning and improvement.
+
 - **STEP 3**:full orchestration with multiple agents and tools.
 ```mermaid
 graph TB
