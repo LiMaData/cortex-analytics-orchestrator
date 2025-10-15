@@ -218,6 +218,284 @@ Five domain-specific agents handle distinct analytics tasks:
 - Self-service analytics for business users
 - Scheduled report distribution to stakeholders
 
+-----------------------------------------------------Added Streamlit App---------------------------------------------------------------
+# Cortex Analytics Orchestrator - Streamlit App
+
+## 🎯 Overview
+
+Interactive web interface for the Cortex Analytics Orchestrator - a multi-agent analytics platform demonstrating the "Strategic Data Lead in the AI Era" framework.
+
+## ✨ Features
+
+### 💬 Conversational Mode
+- Natural language query interface
+- Real-time agent orchestration visualization
+- Automated query classification and routing
+- Interactive charts and insights
+- Sample queries for quick testing
+
+### 📊 Dashboard Generator Mode
+- Automated multi-chart report generation
+- Configurable visualizations
+- Benchmark analysis integration
+- Export to PDF and Excel
+- Email distribution capabilities
+
+## 🚀 Quick Start
+
+### 1. Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 2. Run the App
+
+```bash
+streamlit run cortex_orchestrator_app.py
+```
+
+The app will open in your browser at `http://localhost:8501`
+
+## 🏗️ Architecture
+
+The app demonstrates five specialized agents:
+
+1. **Query Classifier** - Routes requests to appropriate agents
+2. **Data Agent** - Executes CortexAnalyst queries
+3. **Benchmark Agent** - Performs comparative analysis
+4. **Visualization Agent** - Generates Plotly charts
+5. **Distribution Agent** - Handles report delivery
+
+## 🔧 Integrating with Snowflake Cortex
+
+To connect to your actual Snowflake Cortex instance:
+
+### Step 1: Install Snowflake Connector
+
+```bash
+pip install snowflake-connector-python snowflake-snowpark-python
+```
+
+### Step 2: Add Configuration
+
+Create a `config.py` file:
+
+```python
+import os
+
+SNOWFLAKE_CONFIG = {
+    'account': os.getenv('SNOWFLAKE_ACCOUNT'),
+    'user': os.getenv('SNOWFLAKE_USER'),
+    'password': os.getenv('SNOWFLAKE_PASSWORD'),
+    'warehouse': os.getenv('SNOWFLAKE_WAREHOUSE'),
+    'database': os.getenv('SNOWFLAKE_DATABASE'),
+    'schema': os.getenv('SNOWFLAKE_SCHEMA'),
+    'role': os.getenv('SNOWFLAKE_ROLE')
+}
+```
+
+### Step 3: Add Snowflake Connection
+
+Add to the top of `cortex_orchestrator_app.py`:
+
+```python
+import snowflake.connector
+from snowflake.snowpark import Session
+from config import SNOWFLAKE_CONFIG
+
+@st.cache_resource
+def get_snowflake_session():
+    """Initialize Snowflake connection"""
+    return Session.builder.configs(SNOWFLAKE_CONFIG).create()
+
+# Initialize session
+snow_session = get_snowflake_session()
+```
+
+### Step 4: Replace Mock Data with Real Queries
+
+Replace the sample data generation with actual Cortex queries:
+
+```python
+# Instead of:
+markets = ["North America", "Europe", "Asia Pacific"]
+open_rates = [28.5, 32.1, 24.8]
+
+# Use:
+query = """
+SELECT 
+    market_name,
+    AVG(open_rate) as avg_open_rate
+FROM email_campaigns
+WHERE campaign_date >= DATEADD(day, -30, CURRENT_DATE())
+GROUP BY market_name
+ORDER BY avg_open_rate DESC
+"""
+df = snow_session.sql(query).to_pandas()
+markets = df['MARKET_NAME'].tolist()
+open_rates = df['AVG_OPEN_RATE'].tolist()
+```
+
+### Step 5: Integrate CortexAnalyst
+
+For natural language queries:
+
+```python
+from snowflake.cortex import Complete
+
+def query_cortex_analyst(user_question):
+    """Route natural language query to CortexAnalyst"""
+    prompt = f"""
+    You are a data analyst. Convert this question to SQL:
+    {user_question}
+    
+    Available tables:
+    - email_campaigns (columns: campaign_date, market_name, sends, opens, clicks)
+    - performance_metrics (columns: metric_date, open_rate, click_rate, conversion_rate)
+    """
+    
+    sql_query = Complete('mistral-large', prompt)
+    results = snow_session.sql(sql_query).to_pandas()
+    return results
+```
+
+## 📁 Project Structure
+
+```
+.
+├── cortex_orchestrator_app.py  # Main Streamlit application
+├── requirements.txt            # Python dependencies
+├── config.py                   # Configuration (create this)
+└── README.md                   # This file
+```
+
+## 🎨 Customization
+
+### Changing Colors
+
+Edit the CSS in the `st.markdown()` section:
+
+```python
+st.markdown("""
+
+    .main-header {
+        color: #YOUR_COLOR;  # Change header color
+    }
+
+""", unsafe_allow_html=True)
+```
+
+### Adding New Agents
+
+1. Add agent to sidebar:
+```python
+agents = {
+    "Your New Agent": "Description of what it does"
+}
+```
+
+2. Implement agent logic in query handling
+
+### Custom Visualizations
+
+Add new chart types in the dashboard generator:
+
+```python
+if "Your Custom Chart" in viz_options:
+    # Your Plotly chart code here
+    st.plotly_chart(fig, use_container_width=True)
+```
+
+## 🔒 Security Best Practices
+
+1. **Never commit credentials** - Use environment variables
+2. **Use Snowflake OAuth** - For production deployments
+3. **Implement role-based access** - Restrict sensitive data
+4. **Enable audit logging** - Track all queries
+
+## 🚀 Deployment Options
+
+### Option 1: Streamlit Community Cloud (Free)
+
+1. Push code to GitHub
+2. Go to [share.streamlit.io](https://share.streamlit.io)
+3. Connect repository
+4. Add secrets in dashboard settings
+
+### Option 2: Docker
+
+Create `Dockerfile`:
+
+```dockerfile
+FROM python:3.9-slim
+
+WORKDIR /app
+COPY . .
+RUN pip install -r requirements.txt
+
+EXPOSE 8501
+CMD ["streamlit", "run", "cortex_orchestrator_app.py"]
+```
+
+Build and run:
+```bash
+docker build -t cortex-orchestrator .
+docker run -p 8501:8501 cortex-orchestrator
+```
+
+### Option 3: Internal Company Server
+
+Deploy on your VML MAP infrastructure with proper authentication
+
+## 📊 Demo Features
+
+The current app includes:
+
+✅ Dual orchestration modes (Chat & Dashboard)
+✅ Visual agent activity logs
+✅ Sample queries for testing
+✅ Interactive Plotly charts
+✅ Export capabilities (PDF/Excel)
+✅ Responsive design
+✅ Professional styling
+
+## 🔜 Next Steps
+
+1. Connect to actual Snowflake Cortex instance
+2. Implement real CortexAnalyst integration
+3. Add user authentication
+4. Enable scheduled dashboard generation
+5. Implement email distribution via SMTP
+6. Add more sophisticated agent orchestration logic
+7. Create feedback loop for query refinement
+
+## 💡 Tips for Demo Presentation
+
+1. **Start with Chat Mode** - Show natural language queries
+2. **Enable agent logs** - Demonstrate orchestration
+3. **Switch to Dashboard Mode** - Show automated reporting
+4. **Highlight agent pipeline** - Visual representation
+5. **Show export options** - PDF and Excel
+6. **Emphasize scalability** - Framework for any use case
+
+## 🤝 Support
+
+For questions about:
+- **Streamlit**: [docs.streamlit.io](https://docs.streamlit.io)
+- **Snowflake Cortex**: [docs.snowflake.com/cortex](https://docs.snowflake.com/en/user-guide/snowflake-cortex)
+- **Plotly**: [plotly.com/python](https://plotly.com/python/)
+
+## 📝 License
+
+Internal VML MAP use only
+
+---
+
+**Built by**: [Your Name]
+**Framework**: Strategic Data Lead in the AI Era
+**Purpose**: Demonstrating agentic AI data architecture
+
 -------------------------------------------------Complete README.md Template-----------------------------------------------------------
 
 # 🤖 Cortex Analytics Orchestrator

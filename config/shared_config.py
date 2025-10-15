@@ -67,7 +67,7 @@ class SharedConfig:
   
   def _load_semantic_model(self) -> Dict[str, Any]:
       """Load semantic model from YAML"""
-      config_file = self.config_dir / "semantic_model.yaml"
+      config_file = self.config_dir / "marketing_semantic_model.yaml"
       
       if not config_file.exists():
           logger.warning(f"Semantic model not found, using defaults")
