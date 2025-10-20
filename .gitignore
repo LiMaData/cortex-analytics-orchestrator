@@ -1,21 +1,33 @@
-﻿# Do not commit runtime environment files
+﻿# .gitignore
+
+# Environment variables
 .env
-.env.*
-# Python artifacts
+.env.local
+.env.*.local
+
+# Python
 __pycache__/
 *.py[cod]
-*.pyo
-*.pyd
+*$py.class
+*.so
+.Python
 venv/
-env/
 .venv/
-pip-wheel-metadata/
-build/
-dist/
-# Testing
-.pytest_cache/
-# IDE/editor
+env/
+ENV/
+
+# IDE
 .vscode/
+.idea/
+*.swp
+*.swo
+
 # OS
-Thumbs.db
 .DS_Store
+Thumbs.db
+
+# Shared data cache
+shared_data/
+
+# Logs
+*.log
