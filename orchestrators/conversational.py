@@ -1,16 +1,33 @@
-﻿"""Conversational Orchestrator - Interactive Q&A mode"""
+﻿"""
+Conversational Orchestrator - Interactive Q&A mode with comprehensive monitoring
+Tracks AI agents (TruLens), internal agents (traditional), and coordinates multi-agent workflows
+"""
 
 from typing import Dict, Any
 import logging
+import time
 from orchestrators.base import BaseOrchestrator
 
 logger = logging.getLogger(__name__)
 
 class ConversationalOrchestrator(BaseOrchestrator):
-    """Conversational orchestrator for interactive Q&A with multi-agent coordination"""
+    """
+    Conversational orchestrator for interactive Q&A with multi-agent coordination
     
-    def __init__(self):
-        """Initialize conversational orchestrator with all agents"""
+    Agents:
+    - DataAgent (AI): NL → SQL via LLM
+    - InsightAgent (AI): Insight generation via LLM
+    - BenchmarkAgent (Hybrid): Database → LLM fallback → Hardcoded
+    - VisualizationAgent (Internal): Rule-based chart generation
+    """
+    
+    def __init__(self, enable_monitoring: bool = True):
+        """
+        Initialize conversational orchestrator with all agents and monitoring
+        
+        Args:
+            enable_monitoring: Whether to enable TruLens and performance monitoring
+        """
         super().__init__()
         
         # Initialize agents
@@ -37,6 +54,20 @@ class ConversationalOrchestrator(BaseOrchestrator):
         self.insight_agent = InsightAgent(cortex_tool)
         self.benchmark_agent = BenchmarkAgent(cortex_tool)
         
+        # Initialize monitoring
+        self.enable_monitoring = enable_monitoring
+        if enable_monitoring:
+            try:
+                from monitoring.agent_monitor import AgentMonitor
+                self.monitor = AgentMonitor(use_trulens=True)
+                logger.info("✅ Monitoring enabled (TruLens + traditional metrics)")
+            except Exception as e:
+                logger.warning(f"⚠️ Monitoring initialization failed: {e}")
+                self.monitor = None
+                self.enable_monitoring = False
+        else:
+            self.monitor = None
+        
         logger.info("✅ ConversationalOrchestrator initialized with all agents")
     
     def process_query(
@@ -47,7 +78,7 @@ class ConversationalOrchestrator(BaseOrchestrator):
         with_insights: bool = True
     ) -> Dict[str, Any]:
         """
-        Process query with multi-agent coordination
+        Process query with multi-agent coordination and monitoring
         
         Args:
             query: Natural language question
@@ -60,12 +91,61 @@ class ConversationalOrchestrator(BaseOrchestrator):
         """
         logger.info(f"❓ Processing query: {query}")
         
+        orchestration_start = time.time()
+        agents_used = []
+        response = {}
+        
         try:
-            # STEP 1: Get actual data from DataAgent
-            data_result = self.data_agent.process(query)
+            # ================================================================
+            # STEP 1: DATA AGENT (AI - LLM for NL→SQL)
+            # ================================================================
+            logger.info("📊 Step 1: Querying data with DataAgent (AI)")
+            data_start = time.time()
             
+            try:
+                data_result = self.data_agent.process(query)
+                data_time = time.time() - data_start
+                
+                # Monitor AI agent with TruLens
+                if self.enable_monitoring and self.monitor:
+                    self.monitor.track_ai_agent(
+                        agent_name='DataAgent',
+                        query=query,
+                        response=data_result,
+                        context=[data_result.get('sql', '')],
+                        execution_time=data_time
+                    )
+                
+                agents_used.append('DataAgent')
+                
+            except Exception as e:
+                data_time = time.time() - data_start
+                logger.error(f"❌ DataAgent failed: {e}")
+                
+                if self.enable_monitoring and self.monitor:
+                    self.monitor.track_ai_agent(
+                        agent_name='DataAgent',
+                        query=query,
+                        response={'success': False, 'error': str(e)},
+                        execution_time=data_time
+                    )
+                
+                raise
+            
+            # Check if data retrieval succeeded
             if not data_result.get('success'):
                 logger.error(f"❌ Query failed: {data_result.get('error')}")
+                
+                # Track failed orchestration
+                if self.enable_monitoring and self.monitor:
+                    self.monitor.track_orchestrator(
+                        query=query,
+                        total_time=time.time() - orchestration_start,
+                        agents_used=agents_used,
+                        overall_success=False,
+                        response={'error': data_result.get('error')}
+                    )
+                
                 return {
                     'success': False,
                     'error': data_result.get('error', 'Unknown error'),
@@ -75,6 +155,7 @@ class ConversationalOrchestrator(BaseOrchestrator):
             
             logger.info(f"✅ Query successful, {len(data_result['data'])} rows")
             
+            # Build response
             response = {
                 'success': True,
                 'data': data_result['data'],
@@ -82,69 +163,247 @@ class ConversationalOrchestrator(BaseOrchestrator):
                 'metadata': data_result.get('metadata', {})
             }
             
-            # STEP 2: Get benchmarks (if requested)
+            # ================================================================
+            # STEP 2: BENCHMARK AGENT (HYBRID - Database → LLM → Hardcoded)
+            # ================================================================
             benchmarks = None
             if with_benchmarks:
+                logger.info("📊 Step 2: Fetching benchmarks with BenchmarkAgent (Hybrid)")
+                benchmark_start = time.time()
+                
                 try:
-                    logger.info("📊 Fetching industry benchmarks...")
                     benchmarks = self.benchmark_agent.process(
                         query=query,
                         data=data_result['data']
                     )
+                    benchmark_time = time.time() - benchmark_start
+                    
+                    # Monitor based on source used
+                    if self.enable_monitoring and self.monitor:
+                        source = benchmarks.get('source', 'unknown')
+                        
+                        # If LLM was used, track as AI agent
+                        if source == 'llm':
+                            self.monitor.track_ai_agent(
+                                agent_name='BenchmarkAgent',
+                                query=query,
+                                response=benchmarks,
+                                context=[f"Metric: {benchmarks.get('metric')}"],
+                                execution_time=benchmark_time
+                            )
+                        else:
+                            # Database or hardcoded - track as internal
+                            self.monitor.track_internal_agent(
+                                agent_name='BenchmarkAgent',
+                                operation='fetch_benchmarks',
+                                input_data={'metric': benchmarks.get('metric')},
+                                output_data=benchmarks,
+                                execution_time=benchmark_time,
+                                success=benchmarks.get('success', False)
+                            )
+                    
                     response['benchmarks'] = benchmarks
-                    logger.info("✅ Benchmarks retrieved")
+                    agents_used.append('BenchmarkAgent')
+                    logger.info(f"✅ Benchmarks retrieved from {source}")
+                    
                 except Exception as e:
+                    benchmark_time = time.time() - benchmark_start
                     logger.warning(f"⚠️ Benchmark fetch failed: {e}")
+                    
+                    if self.enable_monitoring and self.monitor:
+                        self.monitor.track_internal_agent(
+                            agent_name='BenchmarkAgent',
+                            operation='fetch_benchmarks',
+                            input_data={'query': query},
+                            output_data=None,
+                            execution_time=benchmark_time,
+                            success=False,
+                            error=str(e)
+                        )
             
-            # STEP 3: Generate insights with benchmark comparison
+            # ================================================================
+            # STEP 3: INSIGHT AGENT (AI - LLM for insights)
+            # ================================================================
             if with_insights and len(data_result['data']) > 0:
+                logger.info("💡 Step 3: Generating insights with InsightAgent (AI)")
+                insight_start = time.time()
+                
                 try:
-                    logger.info("🤔 Generating insights...")
                     insights = self.insight_agent.process(
                         data=data_result['data'],
                         query=query,
                         sql=data_result.get('sql'),
                         benchmarks=benchmarks
                     )
+                    insight_time = time.time() - insight_start
+                    
+                    # Monitor AI agent with TruLens
+                    if self.enable_monitoring and self.monitor:
+                        self.monitor.track_ai_agent(
+                            agent_name='InsightAgent',
+                            query=query,
+                            response={'insights': insights, 'success': True},
+                            context=[
+                                data_result.get('sql', ''),
+                                benchmarks.get('context', '') if benchmarks else ''
+                            ],
+                            execution_time=insight_time
+                        )
+                    
                     response['insights'] = insights
-                    logger.info("✅ Insights generated")
+                    agents_used.append('InsightAgent')
+                    logger.info(f"✅ Insights generated ({len(insights)} chars)")
+                    
                 except Exception as e:
+                    insight_time = time.time() - insight_start
                     logger.error(f"❌ Insight generation failed: {e}")
-                    # Don't fail the whole query if insights fail
+                    
+                    if self.enable_monitoring and self.monitor:
+                        self.monitor.track_ai_agent(
+                            agent_name='InsightAgent',
+                            query=query,
+                            response={'success': False, 'error': str(e)},
+                            execution_time=insight_time
+                        )
+                    
+                    # Don't fail entire query if insights fail
+                    response['insights_error'] = str(e)
             
-            # STEP 4: Create visualization (if requested)
+            # ================================================================
+            # STEP 4: VISUALIZATION AGENT (INTERNAL - Rule-based)
+            # ================================================================
             if with_viz and len(data_result['data']) > 0:
+                logger.info("📈 Step 4: Creating visualization with VisualizationAgent (Internal)")
+                viz_start = time.time()
+                
                 try:
-                    logger.info("📊 Creating visualization...")
                     fig = self.viz_agent.create_visualization(
                         data=data_result['data'],
                         question=query
                     )
+                    viz_time = time.time() - viz_start
+                    
+                    # Monitor internal agent (traditional metrics)
+                    if self.enable_monitoring and self.monitor:
+                        self.monitor.track_internal_agent(
+                            agent_name='VisualizationAgent',
+                            operation='create_visualization',
+                            input_data=data_result['data'],
+                            output_data=fig,
+                            execution_time=viz_time,
+                            success=fig is not None
+                        )
+                    
                     if fig:
                         response['visualization'] = fig
+                        agents_used.append('VisualizationAgent')
                         logger.info("✅ Visualization created")
                     else:
                         logger.warning("⚠️ Visualization returned None")
+                        
                 except Exception as e:
+                    viz_time = time.time() - viz_start
                     logger.warning(f"⚠️ Visualization failed: {e}")
+                    
+                    if self.enable_monitoring and self.monitor:
+                        self.monitor.track_internal_agent(
+                            agent_name='VisualizationAgent',
+                            operation='create_visualization',
+                            input_data=data_result['data'],
+                            output_data=None,
+                            execution_time=viz_time,
+                            success=False,
+                            error=str(e)
+                        )
+            
+            # ================================================================
+            # TRACK OVERALL ORCHESTRATION
+            # ================================================================
+            total_time = time.time() - orchestration_start
+            
+            if self.enable_monitoring and self.monitor:
+                self.monitor.track_orchestrator(
+                    query=query,
+                    total_time=total_time,
+                    agents_used=agents_used,
+                    overall_success=True,
+                    response=response
+                )
+            
+            logger.info(f"✅ Query processing complete: {total_time:.2f}s, {len(agents_used)} agents")
             
             return response
             
         except Exception as e:
-            logger.error(f"❌ Unexpected error: {e}")
+            total_time = time.time() - orchestration_start
+            logger.error(f"❌ Orchestration failed: {e}")
+            
+            # Track failed orchestration
+            if self.enable_monitoring and self.monitor:
+                self.monitor.track_orchestrator(
+                    query=query,
+                    total_time=total_time,
+                    agents_used=agents_used,
+                    overall_success=False,
+                    response={'error': str(e)}
+                )
+            
             import traceback
             traceback.print_exc()
+            
             return {
                 'success': False,
                 'error': str(e),
-                'data': []
+                'data': [],
+                'agents_used': agents_used
             }
     
     def get_status(self) -> Dict[str, Any]:
         """Get orchestrator status"""
-        return {
+        status = {
             'name': 'ConversationalOrchestrator',
             'mode': 'conversational',
             'agents_loaded': ['data', 'visualization', 'insight', 'benchmark'],
-            'config_valid': self.config.validate()
+            'config_valid': self.config.validate(),
+            'monitoring_enabled': self.enable_monitoring
         }
+        
+        # Add monitoring stats if available
+        if self.enable_monitoring and self.monitor:
+            dashboard_data = self.monitor.get_dashboard_data()
+            status['monitoring_stats'] = dashboard_data
+        
+        return status
+    
+    def get_performance_report(self) -> Dict[str, Any]:
+        """
+        Get comprehensive performance report across all agents
+        
+        Returns:
+            Dict with performance metrics for each agent type
+        """
+        if not self.enable_monitoring or not self.monitor:
+            return {'error': 'Monitoring not enabled'}
+        
+        report = {
+            'timestamp': time.time(),
+            'ai_agents': {},
+            'internal_agents': {},
+            'orchestrator': {}
+        }
+        
+        # AI Agents (with TruLens metrics)
+        for agent_name in ['DataAgent', 'InsightAgent', 'BenchmarkAgent']:
+            stats = self.monitor.get_agent_stats(agent_name)
+            if stats:
+                report['ai_agents'][agent_name] = stats
+        
+        # Internal Agents (traditional metrics)
+        viz_stats = self.monitor.get_agent_stats('VisualizationAgent')
+        if viz_stats:
+            report['internal_agents']['VisualizationAgent'] = viz_stats
+        
+        # Orchestrator stats
+        report['orchestrator'] = self.monitor.get_dashboard_data()
+        
+        return report
