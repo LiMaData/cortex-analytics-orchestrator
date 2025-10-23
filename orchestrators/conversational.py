@@ -59,7 +59,11 @@ class ConversationalOrchestrator(BaseOrchestrator):
         if enable_monitoring:
             try:
                 from monitoring.agent_monitor import AgentMonitor
-                self.monitor = AgentMonitor(use_trulens=True)
+                self.monitor = AgentMonitor(
+                    #use_trulens=True        # Set to True if you want paid Truelens metrics
+                    session=session,           # Pass session for optional Cortex eval
+                    use_cortex_eval=True     # Set to True if you want FREE cortex_eval metrics
+                )
                 logger.info("✅ Monitoring enabled (TruLens + traditional metrics)")
             except Exception as e:
                 logger.warning(f"⚠️ Monitoring initialization failed: {e}")
