@@ -58,13 +58,9 @@ class ConversationalOrchestrator(BaseOrchestrator):
         self.enable_monitoring = enable_monitoring
         if enable_monitoring:
             try:
-                from monitoring.agent_monitor import AgentMonitor
-                self.monitor = AgentMonitor(
-                    #use_trulens=True        # Set to True if you want paid Truelens metrics
-                    session=session,           # Pass session for optional Cortex eval
-                    use_cortex_eval=True     # Set to True if you want FREE cortex_eval metrics
-                )
-                logger.info("✅ Monitoring enabled (TruLens + traditional metrics)")
+                from monitoring import get_agent_monitor
+                self.monitor = get_agent_monitor(session=session)
+                logger.info("✅ Monitoring enabled")
             except Exception as e:
                 logger.warning(f"⚠️ Monitoring initialization failed: {e}")
                 self.monitor = None
@@ -110,7 +106,7 @@ class ConversationalOrchestrator(BaseOrchestrator):
                 data_result = self.data_agent.process(query)
                 data_time = time.time() - data_start
                 
-                # Monitor AI agent with TruLens
+                # Monitor AI agent with TruLens or Cortex
                 if self.enable_monitoring and self.monitor:
                     self.monitor.track_ai_agent(
                         agent_name='DataAgent',

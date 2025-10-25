@@ -15,7 +15,8 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from monitoring.agent_monitor import AgentMonitor
+from monitoring import get_agent_monitor
+from config.monitoring_config import MonitoringConfig, MonitoringMode
 from orchestrators.conversational import ConversationalOrchestrator
 
 # Page config
@@ -65,7 +66,9 @@ if not orchestrator:
 
 monitor = orchestrator.monitor
 
-# Top controls
+# ============================================================================
+# TOP CONTROLS
+# ============================================================================
 col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
 
 with col1:
@@ -87,12 +90,68 @@ with col4:
 
 st.divider()
 
-# Get data
-if not monitor:
-    st.warning("⚠️ Monitoring not available. Enable monitoring in orchestrator.")
-    st.stop()
+# ============================================================================
+# MONITORING MODE SELECTOR
+# ============================================================================
+st.subheader("🔧 Monitoring Configuration")
 
-dashboard_data = monitor.get_dashboard_data()
+col1, col2, col3 = st.columns([2, 2, 1])
+
+with col1:
+    current_mode = MonitoringConfig.get_mode()
+    
+    mode_options = {
+        "Basic Monitoring (Free)": MonitoringMode.BASIC,
+        "Cortex Evaluation (Free)": MonitoringMode.CORTEX,
+        "TruLens Evaluation ($100-200/mo)": MonitoringMode.TRULENS
+    }
+    
+    # Find current mode label
+    current_label = [k for k, v in mode_options.items() if v == current_mode][0]
+    
+    selected_mode = st.selectbox(
+        "Evaluation System",
+        options=list(mode_options.keys()),
+        index=list(mode_options.keys()).index(current_label),
+        help="Choose which monitoring system to use for quality evaluation"
+    )
+
+with col2:
+    # Show status with helpful info
+    if current_mode == MonitoringMode.CORTEX:
+        st.success("✅ Currently: Snowflake Cortex (FREE)")
+        st.caption("Uses your Snowflake credits for LLM-based evaluation")
+    elif current_mode == MonitoringMode.TRULENS:
+        st.warning("💵 Currently: TruLens (OpenAI API)")
+        st.caption("Requires OpenAI API key, costs $100-200/month")
+    else:
+        st.info("📊 Currently: Basic Monitoring")
+        st.caption("Tracks speed and errors only, no quality evaluation")
+
+with col3:
+    st.write("")  # Spacing
+    st.write("")  # Spacing
+    
+    # Apply button - only show if mode changed
+    if mode_options[selected_mode] != current_mode:
+        if st.button("✅ Apply", use_container_width=True, type="primary"):
+            # Switch modes
+            if mode_options[selected_mode] == MonitoringMode.TRULENS:
+                MonitoringConfig.switch_to_trulens()
+                st.success("Switched to TruLens! Restart app to take effect.")
+            elif mode_options[selected_mode] == MonitoringMode.CORTEX:
+                MonitoringConfig.switch_to_cortex()
+                st.success("Switched to Cortex! Restart app to take effect.")
+            else:
+                MonitoringConfig.switch_to_basic()
+                st.success("Switched to Basic! Restart app to take effect.")
+            
+            # Note about restart
+            st.info("ℹ️ Please restart the main app for changes to take effect")
+    else:
+        st.button("✅ Applied", disabled=True, use_container_width=True)
+
+st.divider()
 
 # ============================================================================
 # SYSTEM OVERVIEW

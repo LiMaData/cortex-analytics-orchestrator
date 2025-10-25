@@ -1,5 +1,5 @@
 """
-Comprehensive agent monitoring system
+Comprehensive agent monitoring system (WITHOUT TruLens)
 Tracks AI agents, internal agents, and overall system performance
 """
 
@@ -14,36 +14,34 @@ logger = logging.getLogger(__name__)
 class AgentMonitor:
     """
     Unified monitoring for all agent types
-    - AI Agents: Quality metrics (with optional TruLens)
-    - Internal Agents: Performance metrics (speed, accuracy)
+    - AI Agents: Basic performance metrics
+    - Internal Agents: Speed, accuracy metrics
     - System: Overall orchestration metrics
+    
+    NOTE: TruLens removed due to dependency conflicts
     """
     
-    def __init__(self, use_trulens: bool = True):  # ← Changed default to False
-        """Initialize monitoring system"""
-        self.use_trulens = use_trulens
-        self.metrics_history = []
-        self.trulens = None
+    def __init__(self, session=None, use_cortex_eval: bool = False):
+        """
+        Initialize monitoring system
         
-        # Initialize TruLens for AI agents (optional)
-        if use_trulens:
+        Args:
+            session: Snowflake session (for Cortex evaluation if enabled)
+            use_cortex_eval: Use Snowflake Cortex for quality evaluation (FREE)
+        """
+        self.metrics_history = []
+        self.use_cortex_eval = use_cortex_eval
+        self.cortex_evaluator = None
+        
+        # Optional: Use Cortex for evaluation (no external dependencies)
+        if use_cortex_eval and session:
             try:
-                from monitoring.trulens_setup import AgentEvaluator
-                self.trulens = AgentEvaluator()
-                
-                if self.trulens.enabled:
-                    logger.info("✅ TruLens enabled for AI agents")
-                else:
-                    logger.warning("⚠️ TruLens initialization failed, using basic metrics")
-                    self.use_trulens = False
-                    
-            except ImportError as e:
-                logger.warning(f"⚠️ TruLens not available: {e}")
-                logger.info("💡 Install with: pip install trulens-eval openai")
-                self.use_trulens = False
+                from monitoring.cortex_evaluator import CortexEvaluator
+                self.cortex_evaluator = CortexEvaluator(session)
+                logger.info("✅ Cortex evaluation enabled (FREE, no OpenAI needed)")
             except Exception as e:
-                logger.warning(f"⚠️ TruLens setup failed: {e}")
-                self.use_trulens = False
+                logger.warning(f"⚠️ Cortex evaluator not available: {e}")
+                self.use_cortex_eval = False
         
         logger.info("✅ AgentMonitor initialized")
     
@@ -60,7 +58,7 @@ class AgentMonitor:
         
         Metrics tracked:
         - Performance: Latency, success rate
-        - Quality: Relevance, groundedness (if TruLens enabled)
+        - Quality: Basic scores (or Cortex evaluation if enabled)
         """
         
         metrics = {
@@ -72,28 +70,27 @@ class AgentMonitor:
             'success': response.get('success', False) if isinstance(response, dict) else True
         }
         
-        # TruLens quality metrics (if enabled)
-        if self.use_trulens and self.trulens and self.trulens.enabled:
+        # Quality evaluation (if Cortex evaluator available)
+        if self.use_cortex_eval and self.cortex_evaluator:
             try:
                 response_text = str(response.get('insights', '')) if isinstance(response, dict) else str(response)
-                quality_scores = self.trulens.evaluate_response(
+                quality = self.cortex_evaluator.evaluate_quality(
                     query=query,
                     response=response_text,
                     context=context or []
                 )
-                metrics.update(quality_scores)
-                logger.debug(f"TruLens evaluation: {quality_scores}")
+                metrics.update(quality)
+                logger.debug(f"Cortex evaluation: {quality}")
             except Exception as e:
-                logger.warning(f"TruLens evaluation failed: {e}")
-                # Add fallback scores
+                logger.warning(f"Cortex evaluation failed: {e}")
+                # Fallback to basic scores
                 metrics.update({
                     'relevance_score': 0.85,
                     'groundedness_score': 0.90,
-                    'context_relevance_score': 0.88,
                     'evaluation_method': 'fallback'
                 })
         else:
-            # Basic fallback scores when TruLens unavailable
+            # Basic fallback scores
             metrics.update({
                 'relevance_score': 0.85,
                 'groundedness_score': 0.90,
@@ -111,8 +108,6 @@ class AgentMonitor:
         
         return metrics
     
-    # ... rest of the methods stay the same ...
-    
     def track_internal_agent(
         self,
         agent_name: str,
@@ -124,12 +119,11 @@ class AgentMonitor:
         error: str = None
     ) -> Dict[str, Any]:
         """
-        Track internal agent execution (VisualizationAgent)
+        Track internal agent execution
         
         Metrics tracked:
         - Performance: Execution time, throughput
         - Reliability: Success rate, error rate
-        - Quality: Output validation
         """
         
         metrics = {
@@ -168,14 +162,7 @@ class AgentMonitor:
         overall_success: bool,
         response: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """
-        Track overall orchestration metrics
-        
-        Metrics tracked:
-        - End-to-end latency
-        - Agent coordination efficiency
-        - Multi-agent success rate
-        """
+        """Track overall orchestration metrics"""
         
         metrics = {
             'component': 'orchestrator',
@@ -196,23 +183,6 @@ class AgentMonitor:
         
         return metrics
     
-    def _evaluate_with_trulens(
-        self,
-        agent_name: str,
-        query: str,
-        response: Any,
-        context: List[str] = None
-    ) -> Dict[str, float]:
-        """Evaluate with TruLens and return scores"""
-        
-        # This would integrate with actual TruLens evaluation
-        # Placeholder for now
-        return {
-            'relevance_score': 0.85,
-            'groundedness_score': 0.90,
-            'context_relevance_score': 0.88
-        }
-    
     def get_agent_stats(self, agent_name: str = None) -> Dict[str, Any]:
         """Get statistics for specific agent or all agents"""
         
@@ -223,16 +193,15 @@ class AgentMonitor:
         if not filtered:
             return {}
         
-        # Calculate statistics
         total_calls = len(filtered)
         successful = sum(1 for m in filtered if m.get('success', True))
-        avg_time = sum(m.get('execution_time', 0) for m in filtered) / total_calls
+        avg_time = sum(m.get('execution_time', 0) for m in filtered) / total_calls if total_calls > 0 else 0
         
         return {
             'agent_name': agent_name or 'all',
             'total_calls': total_calls,
             'successful_calls': successful,
-            'success_rate': successful / total_calls * 100,
+            'success_rate': successful / total_calls * 100 if total_calls > 0 else 0,
             'avg_execution_time': avg_time,
             'total_execution_time': sum(m.get('execution_time', 0) for m in filtered)
         }
@@ -240,7 +209,6 @@ class AgentMonitor:
     def get_dashboard_data(self) -> Dict[str, Any]:
         """Get comprehensive dashboard data"""
         
-        # Agent breakdown
         ai_agents = [m for m in self.metrics_history if m.get('agent_type') == 'ai']
         internal_agents = [m for m in self.metrics_history if m.get('agent_type') == 'internal']
         orchestrator_calls = [m for m in self.metrics_history if m.get('component') == 'orchestrator']
@@ -259,3 +227,5 @@ class AgentMonitor:
         with open(filepath, 'w') as f:
             json.dump(self.metrics_history, f, indent=2)
         logger.info(f"✅ Exported {len(self.metrics_history)} metrics to {filepath}")
+
+logger.info("✅ AgentMonitor class defined (TruLens-free)")

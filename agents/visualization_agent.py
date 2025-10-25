@@ -14,62 +14,130 @@ class VisualizationAgent:
     def __init__(self):
         logger.info("✅ VisualizationAgent initialized")
     
-    def create_visualization(
-        self, 
-        data: List[Dict], 
-        question: str = None, 
-        chart_type: str = None
-    ) -> Optional[go.Figure]:
-        """
-        Create visualization with smart auto-detection
+    def create_visualization(self, data: List[Dict[str, Any]], question: str) -> go.Figure:
+        """Create appropriate visualization based on data and question"""
         
-        Args:
-            data: List of dictionaries (query results)
-            question: Original question (helps infer chart type)
-            chart_type: Force specific chart type ('bar', 'line', 'pie')
-            
-        Returns:
-            Plotly figure object or None
-        """
         if not data:
-            logger.warning("⚠️ No data to visualize")
             return None
         
         df = pd.DataFrame(data)
-        logger.info(f"📊 Creating visualization from {len(df)} rows")
-        
-        # CRITICAL: Auto-convert numeric columns
         df = self._convert_numeric_columns(df)
         
-        # Smart categorical detection
-        if chart_type is None:
-            chart_type = self._infer_chart_type(df, question)
+        # Detect time-based data
+        time_columns = self._detect_time_columns(df)
         
-        logger.info(f"📊 Creating {chart_type} chart...")
+        if time_columns:
+            # Create time series chart
+            return self._create_time_series_chart(df, time_columns[0], question)
         
-        # Create appropriate chart
-        if chart_type == 'bar':
-            return self._create_bar_chart(df, question)
-        elif chart_type == 'line':
-            return self._create_line_chart(df, question)
-        elif chart_type == 'pie':
-            return self._create_pie_chart(df, question)
-        else:
-            return self._create_bar_chart(df, question)  # Default
-    
-    def _convert_numeric_columns(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Convert string columns to numeric where appropriate"""
+        # Rest of existing logic...
+        numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+        categorical_cols = df.select_dtypes(include=['object']).columns.tolist()
         
-        # List of columns that should stay as strings
-        text_columns = ['BUSINESSUNIT', 'MARKET', 'COUNTRY_CODE', 'COUNTRY',
-                       'CHANNEL', 'CHANNEL_GROUPING', 'SOURCE', 'CAMPAIGN',
-                       'REGION', 'SEGMENT', 'SENDID', 'SEND_KEY']
+        if len(numeric_cols) >= 2:
+            x_col = categorical_cols[0] if categorical_cols else df.columns[0]
+            return self._create_bar_chart(df, x_col=x_col, y_cols=numeric_cols)
+        elif len(numeric_cols) == 1:
+            if categorical_cols:
+                x_col = categorical_cols[0]
+                y_col = numeric_cols[0]
+                return self._create_bar_chart(df, x_col=x_col, y_cols=[y_col])
+            else:
+                x_col = df.columns[0]
+                y_col = numeric_cols[0]
+                return self._create_line_chart(df, x_col=x_col, y_col=y_col)
+        
+        return None
+
+    def _detect_time_columns(self, df: pd.DataFrame) -> List[str]:
+        """Detect columns that contain time/date data"""
+        
+        time_columns = []
         
         for col in df.columns:
-            if col.upper() not in text_columns:
+            col_lower = col.lower()
+            
+            # Check column name
+            if any(keyword in col_lower for keyword in ['date', 'time', 'year', 'month', 'week', 'day', 'quarter']):
+                time_columns.append(col)
+                continue
+            
+            # Check data type
+            if pd.api.types.is_datetime64_any_dtype(df[col]):
+                time_columns.append(col)
+                continue
+            
+            # Try parsing as date
+            if df[col].dtype == 'object':
                 try:
-                    df[col] = pd.to_numeric(df[col], errors='ignore')
+                    pd.to_datetime(df[col].head())
+                    time_columns.append(col)
                 except:
+                    pass
+        
+        return time_columns
+
+    def _create_time_series_chart(self, df: pd.DataFrame, time_col: str, question: str) -> go.Figure:
+        """Create time series line chart"""
+        
+        # Convert time column to datetime
+        try:
+            df[time_col] = pd.to_datetime(df[time_col])
+        except:
+            pass
+        
+        # Sort by time
+        df = df.sort_values(time_col)
+        
+        # Get numeric columns to plot
+        numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+        
+        fig = go.Figure()
+        
+        # Add line for each metric
+        for col in numeric_cols[:3]:  # Limit to 3 metrics
+            fig.add_trace(go.Scatter(
+                x=df[time_col],
+                y=df[col],
+                mode='lines+markers',
+                name=col,
+                line=dict(width=2),
+                marker=dict(size=6)
+            ))
+        
+        # Determine time granularity for title
+        time_range = df[time_col].max() - df[time_col].min()
+        if time_range.days > 365:
+            granularity = "Yearly"
+        elif time_range.days > 60:
+            granularity = "Monthly"
+        elif time_range.days > 14:
+            granularity = "Weekly"
+        else:
+            granularity = "Daily"
+        
+        fig.update_layout(
+            title=f"{granularity} Trend: {question}",
+            xaxis_title=time_col.replace('_', ' ').title(),
+            yaxis_title="Value",
+            hovermode='x unified',
+            template='plotly_white',
+            showlegend=True,
+            height=500
+        )
+        
+        return fig
+    
+    def _convert_numeric_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Convert string numbers to numeric where possible"""
+        
+        for col in df.columns:
+            if df[col].dtype == 'object':
+                try:
+                    # Try to convert to numeric
+                    df[col] = pd.to_numeric(df[col])
+                except (ValueError, TypeError):
+                    # If conversion fails, keep as is
                     pass
         
         return df
@@ -106,25 +174,35 @@ class VisualizationAgent:
         # Default: bar chart
         return 'bar'
     
-    def _create_bar_chart(self, df: pd.DataFrame, title: str = None) -> go.Figure:
-        """Create bar chart"""
+    def _create_bar_chart(self, df: pd.DataFrame, x_col: str = None, y_cols: List[str] = None, title: str = None) -> go.Figure:
+        """Create bar chart
         
-        # Convert column names to uppercase for consistency
-        df.columns = [col.upper() for col in df.columns]
+        Args:
+            df: DataFrame with data
+            x_col: Column name for x-axis (categorical)
+            y_cols: List of column names for y-axis (numeric)
+            title: Optional title for the chart
+        """
         
-        # Identify columns
-        numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
-        string_cols = df.select_dtypes(include=['object', 'string']).columns.tolist()
+        # Use defaults if not provided
+        if x_col is None:
+            string_cols = df.select_dtypes(include=['object', 'string']).columns.tolist()
+            x_col = string_cols[0] if string_cols else df.columns[0]
         
-        if not numeric_cols:
-            logger.warning("⚠️ No numeric columns found for bar chart")
-            return None
+        if y_cols is None:
+            numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+            y_cols = numeric_cols if numeric_cols else [df.columns[1] if len(df.columns) > 1 else df.columns[0]]
         
-        # Select x (categorical) and y (numeric)
-        x_col = string_cols[0] if string_cols else df.columns[0]
-        y_col = numeric_cols[0]
+        # Use first numeric column if y_cols is empty
+        if not y_cols:
+            numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+            if not numeric_cols:
+                logger.warning("⚠️ No numeric columns found for bar chart")
+                return None
+            y_cols = [numeric_cols[0]]
         
-        # Sort by value descending
+        # Sort by first y column descending
+        y_col = y_cols[0]
         df_sorted = df.sort_values(by=y_col, ascending=False)
         
         # Create chart
@@ -162,44 +240,66 @@ class VisualizationAgent:
         
         return fig
     
-    def _create_line_chart(self, df: pd.DataFrame, title: str = None) -> go.Figure:
-        """Create line chart for trends"""
+    def _create_line_chart(self, df: pd.DataFrame, x_col: str = None, y_col: str = None, title: str = None) -> go.Figure:
+        """Create line chart for trends
         
-        x_col = df.columns[0]
-        numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+        Args:
+            df: DataFrame with data
+            x_col: Column name for x-axis
+            y_col: Column name for y-axis (numeric)
+            title: Optional title for the chart
+        """
+        
+        # Use defaults if not provided
+        if x_col is None:
+            x_col = df.columns[0]
+        
+        if y_col is None:
+            numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+            y_col = numeric_cols[0] if numeric_cols else df.columns[1]
         
         fig = go.Figure()
         
-        for y_col in numeric_cols:
-            fig.add_trace(go.Scatter(
-                x=df[x_col],
-                y=df[y_col],
-                mode='lines+markers',
-                name=y_col.replace('_', ' ').title()
-            ))
+        fig.add_trace(go.Scatter(
+            x=df[x_col],
+            y=df[y_col],
+            mode='lines+markers',
+            name=y_col.replace('_', ' ').title(),
+            line=dict(width=2),
+            marker=dict(size=6)
+        ))
         
         fig.update_layout(
             title=title or "Trend Over Time",
             xaxis_title=x_col.replace('_', ' ').title(),
-            yaxis_title="Value",
+            yaxis_title=y_col.replace('_', ' ').title(),
             height=600,
             hovermode='x unified'
         )
         
         return fig
     
-    def _create_pie_chart(self, df: pd.DataFrame, title: str = None) -> go.Figure:
-        """Create pie chart for proportions"""
+    def _create_pie_chart(self, df: pd.DataFrame, labels_col: str = None, values_col: str = None, title: str = None) -> go.Figure:
+        """Create pie chart for proportions
         
-        categorical_cols = df.select_dtypes(exclude=['number']).columns.tolist()
-        numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+        Args:
+            df: DataFrame with data
+            labels_col: Column name for labels (categorical)
+            values_col: Column name for values (numeric)
+            title: Optional title for the chart
+        """
         
-        if not categorical_cols or not numeric_cols:
-            logger.warning("⚠️ Need both categorical and numeric columns for pie chart")
-            return self._create_bar_chart(df, title)
+        # Use defaults if not provided
+        if labels_col is None:
+            categorical_cols = df.select_dtypes(exclude=['number']).columns.tolist()
+            labels_col = categorical_cols[0] if categorical_cols else df.columns[0]
         
-        labels_col = categorical_cols[0]
-        values_col = numeric_cols[0]
+        if values_col is None:
+            numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+            if not numeric_cols:
+                logger.warning("⚠️ Need numeric column for pie chart")
+                return self._create_bar_chart(df, x_col=labels_col, title=title)
+            values_col = numeric_cols[0]
         
         fig = px.pie(
             df,
@@ -213,8 +313,12 @@ class VisualizationAgent:
         
         return fig
     
-    # Keep the old process() method for backward compatibility
-    def process(self, data: list[dict], chart_type: str = "bar", x: str = None, y: str = None):
-        """Legacy method - calls create_visualization()"""
+    def process(self, data: List[Dict[str, Any]], question: str = None) -> go.Figure:
+        """Legacy method - calls create_visualization()
+        
+        Args:
+            data: List of dictionaries containing the data
+            question: Question or description for the visualization
+        """
         logger.warning("⚠️ process() is deprecated, use create_visualization() instead")
-        return self.create_visualization(data, chart_type=chart_type)
+        return self.create_visualization(data, question=question)
