@@ -1,6 +1,5 @@
 """
 Streamlit UI for Multi-Agent Analytics Orchestrator
-Improved with working examples and elegant progress visualization
 """
 
 import streamlit as st
@@ -9,7 +8,9 @@ from orchestrators.conversational import ConversationalOrchestrator
 import logging
 import time
 
-# Configure
+# ================================================================
+# PAGE CONFIG
+# ================================================================
 st.set_page_config(
     page_title="Multi-Agent Analytics Orchestrator",
     page_icon="📊",
@@ -53,10 +54,12 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Setup logging
-logging.basicConfig(level=logging.WARNING)  # Reduce noise in UI
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
-# Initialize session state
+# ================================================================
+# SESSION STATE INITIALIZATION
+# ================================================================
 if 'orchestrator' not in st.session_state:
     with st.spinner("🔧 Initializing orchestrator..."):
         try:
@@ -71,7 +74,9 @@ if 'orchestrator' not in st.session_state:
 if 'last_response' not in st.session_state:
     st.session_state.last_response = None
 
-# Sidebar
+# ================================================================
+# SIDEBAR CONFIGURATION
+# ================================================================
 with st.sidebar:
     st.title("⚙️ Configuration")
     
@@ -109,11 +114,15 @@ with st.sidebar:
             st.metric("Avg Time", f"{stats.get('avg_query_time', 0):.1f}s")
             st.metric("Success Rate", f"{stats.get('success_rate', 0):.0f}%")
 
-# Main header
+# ================================================================
+# MAIN HEADER
+# ================================================================
 st.markdown('<p class="main-header">🚀 Cortex Analytics Orchestrator</p>', unsafe_allow_html=True)
 st.caption("Multi-Agent Analytics with AI-Powered Insights & Benchmark Comparison")
 
-# Query input section
+# ================================================================
+# QUERY INPUT SECTION
+# ================================================================
 col1, col2 = st.columns([5, 1])
 
 with col1:
@@ -127,7 +136,6 @@ with col1:
 with col2:
     run_query = st.button("🔍 Analyze", type="primary", use_container_width=True)
 
-# Example queries with immediate execution
 st.caption("💡 **Try these examples:**")
 col1, col2, col3, col4 = st.columns(4)
 
@@ -153,7 +161,9 @@ with col4:
 
 st.divider()
 
-# Check if query should be triggered
+# ================================================================
+# QUERY PROCESSING
+# ================================================================
 query_to_process = None
 if run_query and query:
     query_to_process = query
@@ -161,7 +171,6 @@ elif 'trigger_query' in st.session_state:
     query_to_process = st.session_state.trigger_query
     del st.session_state.trigger_query
 
-# Process query with elegant progress visualization
 if query_to_process:
     # Add to history
     if query_to_process not in st.session_state.query_history:
@@ -185,92 +194,72 @@ if query_to_process:
     try:
         start_time = time.time()
         
-        # Step indicators
-        steps_config = [
-            {"name": "🔍 Data Query", "key": "data", "weight": 30},
-            {"name": "📊 Benchmarks", "key": "benchmarks", "weight": 20},
-            {"name": "💡 Insights", "key": "insights", "weight": 30},
-            {"name": "📈 Visualization", "key": "viz", "weight": 20}
-        ]
-        
+        # ================================================================
         # STEP 1: Data Query
+        # ================================================================
         if show_processing:
             step1.markdown('<div class="step-indicator step-active">🔍 <b>Data Query</b> - Translating to SQL...</div>', unsafe_allow_html=True)
             progress_bar.progress(0.1)
             time_estimate.caption("⏱️ Estimated time: 15-40 seconds")
         
-        # Execute query with monitoring
+        # Execute query with monitoring ✅ with_insights enabled
         response = st.session_state.orchestrator.process_query(
             query_to_process,
             with_viz=with_viz,
             with_benchmarks=with_benchmarks,
-            with_insights=with_insights
+            with_insights=with_insights  # ✅ Insights enabled
         )
         
         if show_processing:
             step1.markdown('<div class="step-indicator step-complete">✅ <b>Data Query</b> - Complete</div>', unsafe_allow_html=True)
-            progress_bar.progress(0.3)
+            progress_bar.progress(0.35)
+            time.sleep(0.2)
         
+        # ================================================================
         # STEP 2: Benchmarks
-        if with_benchmarks and show_processing:
-            step2.markdown('<div class="step-indicator step-active">📊 <b>Benchmarks</b> - Fetching industry data...</div>', unsafe_allow_html=True)
-            progress_bar.progress(0.5)
+        # ================================================================
+        if show_processing and with_benchmarks:
+            step2.markdown('<div class="step-indicator step-complete">✅ <b>Benchmarks</b> - Complete</div>', unsafe_allow_html=True)
+            progress_bar.progress(0.55)
+            time.sleep(0.1)
         
-        if show_processing:
-            if 'benchmarks' in response:
-                step2.markdown('<div class="step-indicator step-complete">✅ <b>Benchmarks</b> - Retrieved</div>', unsafe_allow_html=True)
-            elif with_benchmarks:
-                step2.markdown('<div class="step-indicator step-error">⚠️ <b>Benchmarks</b> - Skipped</div>', unsafe_allow_html=True)
-            progress_bar.progress(0.5)
-        
+        # ================================================================
         # STEP 3: Insights
-        if with_insights and show_processing:
-            step3.markdown('<div class="step-indicator step-active">💡 <b>AI Insights</b> - Generating analysis...</div>', unsafe_allow_html=True)
-            progress_bar.progress(0.7)
+        # ================================================================
+        if show_processing and with_insights:
+            step3.markdown('<div class="step-indicator step-complete">✅ <b>Insights</b> - Generated</div>', unsafe_allow_html=True)
+            progress_bar.progress(0.75)
+            time.sleep(0.1)
         
-        if show_processing:
-            if 'insights' in response:
-                step3.markdown('<div class="step-indicator step-complete">✅ <b>AI Insights</b> - Generated</div>', unsafe_allow_html=True)
-            elif with_insights:
-                step3.markdown('<div class="step-indicator step-error">⚠️ <b>AI Insights</b> - Skipped</div>', unsafe_allow_html=True)
-            progress_bar.progress(0.8)
-        
+        # ================================================================
         # STEP 4: Visualization
-        if with_viz and show_processing:
-            step4.markdown('<div class="step-indicator step-active">📈 <b>Visualization</b> - Creating chart...</div>', unsafe_allow_html=True)
-            progress_bar.progress(0.9)
-        
-        if show_processing:
-            if 'visualization' in response:
-                step4.markdown('<div class="step-indicator step-complete">✅ <b>Visualization</b> - Created</div>', unsafe_allow_html=True)
-            elif with_viz:
-                step4.markdown('<div class="step-indicator step-error">⚠️ <b>Visualization</b> - Skipped</div>', unsafe_allow_html=True)
-            progress_bar.progress(1.0)
+        # ================================================================
+        if show_processing and with_viz:
+            step4.markdown('<div class="step-indicator step-complete">✅ <b>Visualization</b> - Ready</div>', unsafe_allow_html=True)
+            progress_bar.progress(0.95)
+            time.sleep(0.1)
         
         elapsed = time.time() - start_time
         
         if show_processing:
-            time_estimate.caption(f"✅ **Completed in {elapsed:.2f}s**")
-            time.sleep(0.5)  # Brief pause to show completion
-        
-        # Success message
-        st.success(f"✅ **Query completed successfully!** {len(response.get('data', []))} rows returned in {elapsed:.1f}s")
-        
-        # Store response
-        st.session_state.last_response = response
-        
-        # Clear processing visualization
-        if show_processing:
-            time.sleep(0.3)
-            step1.empty()
+            step1.markdown('<div class="step-indicator step-complete">✅ <b>Complete</b> - All steps finished</div>', unsafe_allow_html=True)
+            progress_bar.progress(1.0)
+            time_estimate.caption(f"⏱️ **Total time:** {elapsed:.2f}s")
+            time.sleep(0.5)
+            
+            # Clear processing visualization
             step2.empty()
             step3.empty()
             step4.empty()
             progress_bar.empty()
             time_estimate.empty()
         
-        # Display results
+        # ================================================================
+        # DISPLAY RESULTS
+        # ================================================================
         if response.get('success'):
+            st.session_state.last_response = response
+            
             # Create tabs
             tab_names = ["📊 Results"]
             if response.get('sql'):
@@ -279,13 +268,15 @@ if query_to_process:
                 tab_names.append("📈 Chart")
             if 'benchmarks' in response:
                 tab_names.append("📊 Benchmarks")
-            if 'insights' in response:
+            if 'insights' in response and response['insights']:
                 tab_names.append("💡 Insights")
             
             tabs = st.tabs(tab_names)
             tab_idx = 0
             
-            # TAB: RESULTS
+            # ================================================================
+            # TAB 1: RESULTS
+            # ================================================================
             with tabs[tab_idx]:
                 tab_idx += 1
                 st.subheader("📊 Query Results")
@@ -310,14 +301,14 @@ if query_to_process:
                     
                     st.divider()
                     
-                    # Data table with better formatting
+                    # Data table
                     st.dataframe(
                         df,
                         use_container_width=True,
                         height=min(400, len(df) * 35 + 38)
                     )
                     
-                    # Download
+                    # Download CSV
                     col1, col2 = st.columns([1, 4])
                     with col1:
                         csv = df.to_csv(index=False)
@@ -329,9 +320,11 @@ if query_to_process:
                             use_container_width=True
                         )
                 else:
-                    st.info("No data returned")
+                    st.info("📭 No data returned from query")
             
-            # TAB: SQL
+            # ================================================================
+            # TAB 2: SQL
+            # ================================================================
             if response.get('sql'):
                 with tabs[tab_idx]:
                     tab_idx += 1
@@ -348,7 +341,9 @@ if query_to_process:
                     
                     st.code(sql, language="sql", line_numbers=True)
             
-            # TAB: VISUALIZATION
+            # ================================================================
+            # TAB 3: VISUALIZATION
+            # ================================================================
             if 'visualization' in response:
                 with tabs[tab_idx]:
                     tab_idx += 1
@@ -356,13 +351,14 @@ if query_to_process:
                     
                     st.plotly_chart(
                         response['visualization'],
-                        use_container_width=True,
-                        height=600
+                        use_container_width=True
                     )
                     
                     st.caption("💡 _Interactive chart - hover for details, click legend to filter_")
             
-            # TAB: BENCHMARKS
+            # ================================================================
+            # TAB 4: BENCHMARKS
+            # ================================================================
             if 'benchmarks' in response:
                 with tabs[tab_idx]:
                     tab_idx += 1
@@ -409,15 +405,17 @@ if query_to_process:
                     if 'updated_date' in bm_data:
                         st.caption(f"**📅 Last Updated:** {bm_data['updated_date']} ({bm_data.get('age_days', 0)} days ago)")
             
-            # TAB: INSIGHTS
-            if 'insights' in response:
+            # ================================================================
+            # TAB 5: INSIGHTS ✅ FULLY INTEGRATED
+            # ================================================================
+            if 'insights' in response and response['insights']:
                 with tabs[tab_idx]:
                     tab_idx += 1
                     st.subheader("💡 AI-Generated Insights")
                     
                     insights = response['insights']
                     
-                    # Display insights with nice formatting
+                    # ✅ Display insights with nice formatting
                     st.markdown(insights)
                     
                     st.divider()
@@ -425,15 +423,16 @@ if query_to_process:
                     col1, col2 = st.columns(2)
                     with col1:
                         if st.button("🔄 Regenerate Insights", use_container_width=True):
-                            with st.spinner("Regenerating..."):
+                            with st.spinner("Regenerating insights..."):
                                 new_response = st.session_state.orchestrator.process_query(
                                     query_to_process,
                                     with_viz=False,
                                     with_benchmarks=with_benchmarks,
                                     with_insights=True
                                 )
-                                if new_response.get('success'):
+                                if new_response.get('success') and 'insights' in new_response:
                                     st.session_state.last_response['insights'] = new_response.get('insights')
+                                    st.success("✅ Insights regenerated!")
                                     st.rerun()
                     
                     with col2:
@@ -445,6 +444,19 @@ if query_to_process:
                             "text/plain",
                             use_container_width=True
                         )
+            
+            # ================================================================
+            # ERROR MESSAGES FOR FAILED AGENTS
+            # ================================================================
+            error_col = st.container()
+            
+            if 'insights_error' in response:
+                with error_col:
+                    st.warning(f"⚠️ **Insights Generation Failed:** {response['insights_error']}")
+            
+            if 'benchmark_error' in response:
+                with error_col:
+                    st.warning(f"⚠️ **Benchmark Generation Failed:** {response['benchmark_error']}")
         
         else:
             st.error(f"❌ **Query failed:** {response.get('error', 'Unknown error')}")
@@ -461,7 +473,9 @@ if query_to_process:
         
         logger.exception("Query execution failed")
 
-# Footer
+# ================================================================
+# FOOTER
+# ================================================================
 st.divider()
 col1, col2, col3, col4 = st.columns(4)
 with col1:

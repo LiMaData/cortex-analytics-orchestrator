@@ -1,40 +1,122 @@
 """
-Monitoring package with automatic mode detection
-Supports: Basic, Cortex, and TruLens monitoring
+Monitoring module - Agent performance tracking and evaluation
+Provides factory function to get appropriate monitor based on mode
 """
 
 import logging
-from config.monitoring_config import MonitoringConfig, MonitoringMode
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-def get_agent_monitor(session=None):
+# Import main monitoring class
+from .agent_monitor import AgentMonitor
+
+# Import Cortex evaluator
+try:
+    from .cortex_evaluator import CortexEvaluator
+    logger.info("✅ CortexEvaluator available")
+except ImportError as e:
+    CortexEvaluator = None
+    logger.warning(f"⚠️ CortexEvaluator not available: {e}")
+
+# Import TruLens-based monitor
+try:
+    from .agent_monitor_truelens import AgentMonitorTrueLens
+    logger.info("✅ AgentMonitorTrueLens available")
+except ImportError as e:
+    AgentMonitorTrueLens = None
+    logger.warning(f"⚠️ AgentMonitorTrueLens not available: {e}")
+
+# Import TruLens setup (evaluator)
+try:
+    from .trulens_setup import AgentEvaluator
+    logger.info("✅ TruLens AgentEvaluator available")
+except ImportError as e:
+    AgentEvaluator = None
+    logger.warning(f"⚠️ TruLens AgentEvaluator not available: {e}")
+
+# Import monitoring config if available
+try:
+    from ..config.monitoring_config import MonitoringMode, MonitoringConfig
+    logger.info("✅ MonitoringConfig available")
+except ImportError:
+    logger.warning("⚠️ MonitoringConfig not available")
+    MonitoringMode = None
+    MonitoringConfig = None
+
+
+def get_agent_monitor(mode: str = "BASIC", session=None):
     """
-    Factory function to get appropriate monitor based on config
+    Factory function to get appropriate agent monitor based on mode
     
     Args:
-        session: Snowflake session (for Cortex evaluation)
-        
+        mode: Monitoring mode - "BASIC", "CORTEX", or "TRULENS"
+        session: Snowflake session (required for Cortex mode)
+    
     Returns:
-        AgentMonitor instance configured for current mode
+        AgentMonitor, AgentMonitorTrueLens, or None
+    
+    Examples:
+        # Basic monitoring (no evaluation)
+        monitor = get_agent_monitor("BASIC")
+        
+        # Cortex monitoring (FREE, on-platform)
+        monitor = get_agent_monitor("CORTEX", session=snowflake_session)
+        
+        # TruLens monitoring (Premium)
+        monitor = get_agent_monitor("TRULENS")
     """
     
-    mode = MonitoringConfig.get_mode()
+    mode = mode.upper()
     
-    if mode == MonitoringMode.TRULENS:
-        try:
-            from monitoring.agent_monitoring import AgentMonitor
-            return AgentMonitor(use_trulens=True)
-        except ImportError:
-            logger.warning("⚠️ TruLens not available, falling back to Cortex")
-            mode = MonitoringMode.CORTEX
+    # MODE 1: BASIC (No evaluation)
+    if mode == "BASIC":
+        logger.info("📊 Using BASIC monitoring (no evaluation)")
+        return AgentMonitor(use_cortex_eval=False)
     
-    if mode == MonitoringMode.CORTEX:
-        from monitoring.agent_monitoring_cortex_evaluator import AgentMonitor
+    # MODE 2: CORTEX (FREE, on-platform)
+    elif mode == "CORTEX":
+        if not session:
+            logger.warning("⚠️ Cortex mode requires Snowflake session, falling back to BASIC")
+            return AgentMonitor(use_cortex_eval=False)
+        
+        logger.info("📊 Using CORTEX monitoring (FREE, Snowflake Cortex LLM)")
         return AgentMonitor(session=session, use_cortex_eval=True)
     
-    # Default: Basic monitoring
-    from monitoring.agent_monitoring_cortex_evaluator import AgentMonitor
-    return AgentMonitor(session=session, use_cortex_eval=False)
+    # MODE 3: TRULENS (Premium, external LLM)
+    elif mode == "TRULENS":
+        if not AgentMonitorTrueLens:
+            logger.warning("⚠️ TruLens not available, falling back to BASIC")
+            return AgentMonitor(use_cortex_eval=False)
+        
+        logger.info("📊 Using TRULENS monitoring (Premium, OpenAI LLM)")
+        return AgentMonitorTrueLens(use_trulens_eval=True)
+    
+    # Default: BASIC
+    else:
+        logger.warning(f"⚠️ Unknown monitoring mode '{mode}', using BASIC")
+        return AgentMonitor(use_cortex_eval=False)
 
-__all__ = ['get_agent_monitor', 'MonitoringConfig', 'MonitoringMode']
+
+def get_monitoring_mode():
+    """Get current monitoring mode from config if available"""
+    if MonitoringConfig:
+        try:
+            return MonitoringConfig.get_mode()
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to get mode from config: {e}")
+    return "BASIC"
+
+
+__all__ = [
+    'AgentMonitor',
+    'AgentMonitorTrueLens',
+    'CortexEvaluator',
+    'AgentEvaluator',
+    'MonitoringMode',
+    'MonitoringConfig',
+    'get_agent_monitor',
+    'get_monitoring_mode'
+]
+
+logger.info("✅ Monitoring module initialized with get_agent_monitor factory")

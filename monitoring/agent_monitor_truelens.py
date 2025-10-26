@@ -1,6 +1,6 @@
 """
-Comprehensive agent monitoring system
-Tracks AI agents, internal agents, and overall system performance
+TruLens-based Agent Monitoring
+Wraps AgentEvaluator from trulens_setup.py for consistent interface with AgentMonitor
 """
 
 import time
@@ -9,43 +9,46 @@ from typing import Dict, Any, List
 from datetime import datetime
 import json
 
+from monitoring.trulens_setup import AgentEvaluator
+
 logger = logging.getLogger(__name__)
 
-class AgentMonitor:
+
+class AgentMonitorTrueLens:
     """
-    Unified monitoring for all agent types
-    - AI Agents: Quality metrics (with optional TruLens)
-    - Internal Agents: Performance metrics (speed, accuracy)
+    Unified monitoring for agents using TruLens evaluation
+    - AI Agents: Performance metrics + TruLens evaluation
+    - Internal Agents: Speed, accuracy metrics
     - System: Overall orchestration metrics
+    
+    Uses TruLens for comprehensive quality evaluation
     """
     
-    def __init__(self, use_trulens: bool = True):  # ← Changed default to False
-        """Initialize monitoring system"""
-        self.use_trulens = use_trulens
+    def __init__(self, use_trulens_eval: bool = True):
+        """
+        Initialize TruLens-based monitoring system
+        
+        Args:
+            use_trulens_eval: Use TruLens for quality evaluation ($100-200/mo)
+        """
         self.metrics_history = []
-        self.trulens = None
+        self.use_trulens_eval = use_trulens_eval
+        self.trulens_evaluator = None
         
-        # Initialize TruLens for AI agents (optional)
-        if use_trulens:
+        # Initialize TruLens evaluator
+        if use_trulens_eval:
             try:
-                from monitoring.trulens_setup import AgentEvaluator
-                self.trulens = AgentEvaluator()
-                
-                if self.trulens.enabled:
-                    logger.info("✅ TruLens enabled for AI agents")
+                self.trulens_evaluator = AgentEvaluator()
+                if self.trulens_evaluator.enabled:
+                    logger.info("✅ TruLens evaluation enabled (Premium)")
                 else:
-                    logger.warning("⚠️ TruLens initialization failed, using basic metrics")
-                    self.use_trulens = False
-                    
-            except ImportError as e:
-                logger.warning(f"⚠️ TruLens not available: {e}")
-                logger.info("💡 Install with: pip install trulens-eval openai")
-                self.use_trulens = False
+                    logger.warning("⚠️ TruLens evaluator not available, using fallback")
+                    self.use_trulens_eval = False
             except Exception as e:
-                logger.warning(f"⚠️ TruLens setup failed: {e}")
-                self.use_trulens = False
+                logger.warning(f"⚠️ TruLens evaluator initialization failed: {e}")
+                self.use_trulens_eval = False
         
-        logger.info("✅ AgentMonitor initialized")
+        logger.info("✅ AgentMonitorTrueLens initialized")
     
     def track_ai_agent(
         self,
@@ -56,11 +59,11 @@ class AgentMonitor:
         execution_time: float = None
     ) -> Dict[str, Any]:
         """
-        Track AI agent execution
+        Track AI agent execution with TruLens evaluation
         
         Metrics tracked:
         - Performance: Latency, success rate
-        - Quality: Relevance, groundedness (if TruLens enabled)
+        - Quality: TruLens scores (relevance, groundedness, context relevance)
         """
         
         metrics = {
@@ -72,34 +75,24 @@ class AgentMonitor:
             'success': response.get('success', False) if isinstance(response, dict) else True
         }
         
-        # TruLens quality metrics (if enabled)
-        if self.use_trulens and self.trulens and self.trulens.enabled:
+        # Quality evaluation with TruLens
+        if self.use_trulens_eval and self.trulens_evaluator and self.trulens_evaluator.enabled:
             try:
                 response_text = str(response.get('insights', '')) if isinstance(response, dict) else str(response)
-                quality_scores = self.trulens.evaluate_response(
+                trulens_scores = self.trulens_evaluator.evaluate_response(
                     query=query,
                     response=response_text,
                     context=context or []
                 )
-                metrics.update(quality_scores)
-                logger.debug(f"TruLens evaluation: {quality_scores}")
+                metrics.update(trulens_scores)
+                logger.debug(f"TruLens evaluation: {trulens_scores}")
             except Exception as e:
                 logger.warning(f"TruLens evaluation failed: {e}")
-                # Add fallback scores
-                metrics.update({
-                    'relevance_score': 0.85,
-                    'groundedness_score': 0.90,
-                    'context_relevance_score': 0.88,
-                    'evaluation_method': 'fallback'
-                })
+                # Fallback to basic scores
+                metrics.update(self._get_fallback_scores())
         else:
-            # Basic fallback scores when TruLens unavailable
-            metrics.update({
-                'relevance_score': 0.85,
-                'groundedness_score': 0.90,
-                'context_relevance_score': 0.88,
-                'evaluation_method': 'basic'
-            })
+            # Basic fallback scores
+            metrics.update(self._get_fallback_scores())
         
         # Basic metrics
         if isinstance(response, dict):
@@ -110,8 +103,6 @@ class AgentMonitor:
         logger.info(f"📊 Tracked {agent_name}: {execution_time:.2f}s")
         
         return metrics
-    
-    # ... rest of the methods stay the same ...
     
     def track_internal_agent(
         self,
@@ -124,12 +115,11 @@ class AgentMonitor:
         error: str = None
     ) -> Dict[str, Any]:
         """
-        Track internal agent execution (VisualizationAgent)
+        Track internal agent execution
         
         Metrics tracked:
         - Performance: Execution time, throughput
         - Reliability: Success rate, error rate
-        - Quality: Output validation
         """
         
         metrics = {
@@ -168,14 +158,7 @@ class AgentMonitor:
         overall_success: bool,
         response: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """
-        Track overall orchestration metrics
-        
-        Metrics tracked:
-        - End-to-end latency
-        - Agent coordination efficiency
-        - Multi-agent success rate
-        """
+        """Track overall orchestration metrics"""
         
         metrics = {
             'component': 'orchestrator',
@@ -196,23 +179,6 @@ class AgentMonitor:
         
         return metrics
     
-    def _evaluate_with_trulens(
-        self,
-        agent_name: str,
-        query: str,
-        response: Any,
-        context: List[str] = None
-    ) -> Dict[str, float]:
-        """Evaluate with TruLens and return scores"""
-        
-        # This would integrate with actual TruLens evaluation
-        # Placeholder for now
-        return {
-            'relevance_score': 0.85,
-            'groundedness_score': 0.90,
-            'context_relevance_score': 0.88
-        }
-    
     def get_agent_stats(self, agent_name: str = None) -> Dict[str, Any]:
         """Get statistics for specific agent or all agents"""
         
@@ -223,29 +189,44 @@ class AgentMonitor:
         if not filtered:
             return {}
         
-        # Calculate statistics
         total_calls = len(filtered)
         successful = sum(1 for m in filtered if m.get('success', True))
-        avg_time = sum(m.get('execution_time', 0) for m in filtered) / total_calls
+        avg_time = sum(m.get('execution_time', 0) for m in filtered) / total_calls if total_calls > 0 else 0
         
-        return {
+        # Add TruLens quality scores if available
+        ai_metrics = [m for m in filtered if m.get('agent_type') == 'ai']
+        stats = {
             'agent_name': agent_name or 'all',
             'total_calls': total_calls,
             'successful_calls': successful,
-            'success_rate': successful / total_calls * 100,
+            'success_rate': successful / total_calls * 100 if total_calls > 0 else 0,
             'avg_execution_time': avg_time,
             'total_execution_time': sum(m.get('execution_time', 0) for m in filtered)
         }
+        
+        # Add quality scores from TruLens if available
+        if ai_metrics:
+            avg_relevance = sum(m.get('relevance_score', 0) for m in ai_metrics) / len(ai_metrics)
+            avg_groundedness = sum(m.get('groundedness_score', 0) for m in ai_metrics) / len(ai_metrics)
+            avg_context_relevance = sum(m.get('context_relevance_score', 0) for m in ai_metrics) / len(ai_metrics)
+            
+            stats.update({
+                'avg_relevance_score': avg_relevance,
+                'avg_groundedness_score': avg_groundedness,
+                'avg_context_relevance_score': avg_context_relevance,
+                'evaluation_method': ai_metrics[0].get('evaluation_method', 'unknown')
+            })
+        
+        return stats
     
     def get_dashboard_data(self) -> Dict[str, Any]:
         """Get comprehensive dashboard data"""
         
-        # Agent breakdown
         ai_agents = [m for m in self.metrics_history if m.get('agent_type') == 'ai']
         internal_agents = [m for m in self.metrics_history if m.get('agent_type') == 'internal']
         orchestrator_calls = [m for m in self.metrics_history if m.get('component') == 'orchestrator']
         
-        return {
+        dashboard_data = {
             'total_queries': len(orchestrator_calls),
             'total_agent_calls': len(self.metrics_history),
             'ai_agent_calls': len(ai_agents),
@@ -253,9 +234,48 @@ class AgentMonitor:
             'avg_query_time': sum(m.get('total_execution_time', 0) for m in orchestrator_calls) / len(orchestrator_calls) if orchestrator_calls else 0,
             'success_rate': sum(1 for m in orchestrator_calls if m.get('overall_success')) / len(orchestrator_calls) * 100 if orchestrator_calls else 0
         }
+        
+        # Add TruLens quality metrics if available
+        if ai_agents:
+            avg_relevance = sum(m.get('relevance_score', 0) for m in ai_agents) / len(ai_agents)
+            avg_groundedness = sum(m.get('groundedness_score', 0) for m in ai_agents) / len(ai_agents)
+            avg_context_relevance = sum(m.get('context_relevance_score', 0) for m in ai_agents) / len(ai_agents)
+            
+            dashboard_data.update({
+                'avg_relevance_score': avg_relevance,
+                'avg_groundedness_score': avg_groundedness,
+                'avg_context_relevance_score': avg_context_relevance,
+                'trulens_enabled': self.use_trulens_eval
+            })
+        
+        return dashboard_data
     
-    def export_metrics(self, filepath: str = "metrics_export.json"):
+    def export_metrics(self, filepath: str = "metrics_export_trulens.json"):
         """Export metrics to JSON file"""
         with open(filepath, 'w') as f:
             json.dump(self.metrics_history, f, indent=2)
         logger.info(f"✅ Exported {len(self.metrics_history)} metrics to {filepath}")
+    
+    def get_trulens_leaderboard(self) -> Dict[str, Any]:
+        """Get TruLens leaderboard if available"""
+        if self.trulens_evaluator and self.trulens_evaluator.enabled:
+            try:
+                return self.trulens_evaluator.get_leaderboard()
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to get TruLens leaderboard: {e}")
+                return {'error': str(e)}
+        else:
+            return {'status': 'TruLens not available'}
+    
+    @staticmethod
+    def _get_fallback_scores() -> Dict[str, Any]:
+        """Return fallback scores when TruLens unavailable"""
+        return {
+            'relevance_score': 0.85,
+            'groundedness_score': 0.90,
+            'context_relevance_score': 0.88,
+            'evaluation_method': 'fallback'
+        }
+
+
+logger.info("✅ AgentMonitorTrueLens class defined")

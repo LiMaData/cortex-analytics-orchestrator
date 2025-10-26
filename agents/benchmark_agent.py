@@ -6,6 +6,7 @@ Uses tiered approach: Snowflake tables → LLM → Hardcoded fallbacks
 import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -27,10 +28,12 @@ class BenchmarkAgent:
         
         logger.info(f"🔍 BenchmarkAgent processing: {query}")
         
-        # Initialize ALL variables at the start
+        # ========== CRITICAL: Initialize ALL variables at the start ==========
         source = 'unknown'
         metric = 'email_open_rate'
         benchmarks = None
+        error = None
+        # ======================================================================
         
         try:
             # Step 1: Identify metric
@@ -43,25 +46,29 @@ class BenchmarkAgent:
                 if benchmarks:
                     source = 'database'
                     logger.info("✅ Benchmarks from database")
-            except Exception as e:
-                logger.warning(f"⚠️ Database fetch failed: {e}")
+                else:
+                    logger.debug("⚠️ No benchmarks from database")
+            except Exception as db_error:
+                logger.warning(f"⚠️ Database fetch failed: {db_error}")
                 benchmarks = None
             
             # Step 3: Try LLM if database failed
             if not benchmarks:
                 try:
-                    logger.info("⚠️ Trying LLM")
+                    logger.info("⚠️ Trying LLM...")
                     benchmarks = self._fetch_from_llm(metric)
                     if benchmarks:
                         source = 'llm'
                         logger.info("✅ Benchmarks from LLM")
-                except Exception as e:
-                    logger.warning(f"⚠️ LLM fetch failed: {e}")
+                    else:
+                        logger.debug("⚠️ No benchmarks from LLM")
+                except Exception as llm_error:
+                    logger.warning(f"⚠️ LLM fetch failed: {llm_error}")
                     benchmarks = None
             
             # Step 4: Use hardcoded if both failed
             if not benchmarks:
-                logger.info("⚠️ Using hardcoded benchmarks")
+                logger.info("⚠️ Using hardcoded benchmarks (fallback)")
                 benchmarks = self._get_hardcoded_benchmarks(metric)
                 source = 'hardcoded'
             
@@ -77,10 +84,12 @@ class BenchmarkAgent:
             
         except Exception as e:
             # Complete failure - return safe defaults
-            logger.error(f"❌ Complete benchmark failure: {e}")
+            error = str(e)
+            logger.error(f"❌ Complete benchmark failure: {error}")
+            
             return {
                 'success': False,
-                'error': str(e),
+                'error': error,
                 'metric': metric,
                 'source': 'error',
                 'source_description': 'Error occurred, using defaults',
@@ -90,6 +99,9 @@ class BenchmarkAgent:
     
     def _identify_metric(self, query: str, data: List[Dict[str, Any]] = None) -> str:
         """Identify which metric the query is asking about"""
+        
+        if not query:
+            return 'email_open_rate'
         
         query_lower = query.lower()
         
@@ -107,24 +119,35 @@ class BenchmarkAgent:
         
         # Check data columns if available
         if data and len(data) > 0:
-            columns = list(data[0].keys())
-            for col in columns:
-                col_lower = col.lower()
-                if 'open' in col_lower:
-                    return 'email_open_rate'
-                elif 'click' in col_lower:
-                    return 'email_click_rate'
-                elif 'conversion' in col_lower:
-                    return 'conversion_rate'
+            try:
+                columns = list(data[0].keys())
+                for col in columns:
+                    col_lower = col.lower()
+                    if 'open' in col_lower:
+                        return 'email_open_rate'
+                    elif 'click' in col_lower:
+                        return 'email_click_rate'
+                    elif 'conversion' in col_lower:
+                        return 'conversion_rate'
+            except (TypeError, KeyError, AttributeError) as e:
+                logger.debug(f"Could not inspect data columns: {e}")
         
         # Default
         return 'email_open_rate'
     
     def _fetch_from_database(self, metric: str) -> Optional[Dict[str, Any]]:
-        """Try to fetch benchmarks from Snowflake database"""
+        """Try to fetch benchmarks from Snowflake database (FIXED for actual schema)"""
+        
+        if not metric:
+            return None
         
         try:
-            # Query benchmark table
+            # Escape metric name for SQL safety
+            safe_metric = metric.replace("'", "''")
+            
+            # FIXED: Query now matches actual Snowflake table schema
+            # Note: Removed IS_CURRENT filter (column doesn't exist)
+            # Changed METRIC_NAME to METRIC
             query = f"""
             SELECT 
                 INDUSTRY_AVERAGE,
@@ -133,32 +156,48 @@ class BenchmarkAgent:
                 EXCELLENT_THRESHOLD,
                 SOURCE,
                 UPDATED_DATE
-            FROM BENCHMARKS
-            WHERE METRIC_NAME = '{metric}'
-                AND IS_CURRENT = TRUE
+            FROM BENCHMARK_DATA
+            WHERE METRIC = '{safe_metric}'
             LIMIT 1
             """
             
+            logger.debug(f"Executing benchmark query: {query}")
             result = self.cortex_tool.session.sql(query).collect()
             
             if result and len(result) > 0:
                 row = result[0]
                 
-                # Calculate age
-                updated_date = row['UPDATED_DATE']
-                age_days = (datetime.now() - updated_date).days if updated_date else 0
-                
-                return {
-                    'industry_average': float(row['INDUSTRY_AVERAGE']),
-                    'top_quartile': float(row['TOP_QUARTILE']),
-                    'bottom_quartile': float(row['BOTTOM_QUARTILE']),
-                    'excellent_threshold': float(row['EXCELLENT_THRESHOLD']),
-                    'source_name': row['SOURCE'],
-                    'updated_date': str(updated_date),
-                    'age_days': age_days
-                }
-            
-            return None
+                # Extract fields with error handling
+                try:
+                    industry_avg = float(row['INDUSTRY_AVERAGE'])
+                    top_quartile = float(row['TOP_QUARTILE'])
+                    bottom_quartile = float(row['BOTTOM_QUARTILE'])
+                    excellent = float(row['EXCELLENT_THRESHOLD'])
+                    source_name = str(row['SOURCE'])
+                    updated_date = row['UPDATED_DATE']
+                    
+                    # Calculate age
+                    age_days = 0
+                    if updated_date:
+                        age_days = (datetime.now() - updated_date).days
+                    
+                    logger.info(f"✅ Successfully fetched benchmarks from database for {metric}")
+                    
+                    return {
+                        'industry_average': industry_avg,
+                        'top_quartile': top_quartile,
+                        'bottom_quartile': bottom_quartile,
+                        'excellent_threshold': excellent,
+                        'source_name': source_name,
+                        'updated_date': str(updated_date),
+                        'age_days': age_days
+                    }
+                except (ValueError, KeyError, TypeError) as parse_error:
+                    logger.warning(f"⚠️ Failed to parse database row: {parse_error}")
+                    return None
+            else:
+                logger.debug(f"No benchmarks found for metric: {metric}")
+                return None
             
         except Exception as e:
             logger.warning(f"⚠️ Database fetch failed: {e}")
@@ -166,6 +205,9 @@ class BenchmarkAgent:
     
     def _fetch_from_llm(self, metric: str) -> Optional[Dict[str, Any]]:
         """Generate benchmarks using LLM knowledge"""
+        
+        if not metric or not self.cortex_tool:
+            return None
         
         try:
             prompt = f"""What are the typical industry benchmarks for {metric} in email marketing?
@@ -182,18 +224,25 @@ Top Quartile: [number]%
 Bottom Quartile: [number]%
 Excellent Threshold: [number]%"""
 
-            response = self.cortex_tool.session.sql(f"""
+            # Escape single quotes for SQL
+            safe_prompt = prompt.replace("'", "''")
+            
+            cortex_query = f"""
                 SELECT SNOWFLAKE.CORTEX.COMPLETE(
                     'mistral-large',
-                    '{prompt.replace("'", "''")}'
+                    '{safe_prompt}'
                 ) AS benchmark_data
-            """).collect()
+            """
             
-            if response:
+            response = self.cortex_tool.session.sql(cortex_query).collect()
+            
+            if response and len(response) > 0:
                 text = response[0]['BENCHMARK_DATA']
+                
                 # Parse the response
                 benchmarks = self._parse_llm_response(text)
                 if benchmarks:
+                    logger.info(f"✅ Generated benchmarks from LLM for {metric}")
                     return benchmarks
             
             return None
@@ -205,9 +254,11 @@ Excellent Threshold: [number]%"""
     def _parse_llm_response(self, text: str) -> Optional[Dict[str, Any]]:
         """Parse LLM response to extract benchmark numbers"""
         
-        import re
+        if not text:
+            return None
         
         try:
+            # Find all percentages in the response
             numbers = re.findall(r'(\d+\.?\d*)\s*%', text)
             
             if len(numbers) >= 4:
@@ -221,10 +272,11 @@ Excellent Threshold: [number]%"""
                     'age_days': 0
                 }
             
+            logger.debug(f"⚠️ Could not find 4+ percentages in LLM response")
             return None
             
-        except Exception as e:
-            logger.error(f"Failed to parse LLM response: {e}")
+        except (ValueError, IndexError) as e:
+            logger.warning(f"Failed to parse LLM response: {e}")
             return None
     
     def _get_hardcoded_benchmarks(self, metric: str) -> Dict[str, Any]:
@@ -264,7 +316,13 @@ Excellent Threshold: [number]%"""
             }
         }
         
-        data = benchmarks.get(metric, benchmarks['email_open_rate'])
+        # Get data for this metric or use default
+        if metric in benchmarks:
+            data = benchmarks[metric].copy()
+        else:
+            data = benchmarks['email_open_rate'].copy()
+        
+        # Add metadata
         data['source_name'] = 'Industry Research 2024'
         data['updated_date'] = '2024-01-01'
         data['age_days'] = (datetime.now() - datetime(2024, 1, 1)).days
@@ -299,6 +357,9 @@ Excellent Threshold: [number]%"""
     def _build_context(self, metric: str, benchmarks: Dict[str, Any]) -> str:
         """Build contextual information about the benchmarks"""
         
+        if not benchmarks:
+            benchmarks = self._get_default_benchmarks()
+        
         avg = benchmarks.get('industry_average', 0)
         top = benchmarks.get('top_quartile', 0)
         
@@ -319,4 +380,5 @@ Industry benchmarks for {metric_name}:
 - These benchmarks help evaluate performance relative to peers
 """
 
-logger.info("✅ BenchmarkAgent class defined")
+
+logger.info("✅ BenchmarkAgent class defined ")

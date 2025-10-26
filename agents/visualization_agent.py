@@ -1,10 +1,12 @@
-"""Visualization Agent - Creates charts from data"""
+"""Visualization Agent - Creates charts from data (ENHANCED - Full Date Fix + Plotly Config)"""
 
 import logging
 import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
 from typing import Dict, List, Any, Optional
+from datetime import datetime, timedelta
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -57,75 +59,198 @@ class VisualizationAgent:
         for col in df.columns:
             col_lower = col.lower()
             
-            # Check column name
+            # Check column name FIRST
             if any(keyword in col_lower for keyword in ['date', 'time', 'year', 'month', 'week', 'day', 'quarter']):
                 time_columns.append(col)
+                logger.debug(f"Detected time column by name: {col}")
                 continue
             
             # Check data type
             if pd.api.types.is_datetime64_any_dtype(df[col]):
                 time_columns.append(col)
+                logger.debug(f"Detected datetime dtype column: {col}")
                 continue
             
             # Try parsing as date
             if df[col].dtype == 'object':
                 try:
-                    pd.to_datetime(df[col].head())
-                    time_columns.append(col)
+                    sample = df[col].dropna().head(1)
+                    if len(sample) > 0:
+                        test_val = sample.iloc[0]
+                        # Quick validation - dates usually have dashes or slashes
+                        if isinstance(test_val, str) and ('-' in test_val or '/' in test_val or len(test_val) == 10):
+                            pd.to_datetime(sample, format='mixed')
+                            time_columns.append(col)
+                            logger.debug(f"Detected parseable date column: {col}")
+                except Exception as e:
+                    logger.debug(f"Could not parse {col} as date: {e}")
+            
+            # Check if numeric but might be Unix timestamp
+            elif pd.api.types.is_numeric_dtype(df[col]):
+                try:
+                    sample = df[col].dropna().head(1)
+                    if len(sample) > 0:
+                        val = sample.iloc[0]
+                        # Unix timestamps are usually > 500000000 (year 1985+)
+                        # and < 5000000000 (year 2128)
+                        if 500000000 < val < 5000000000:
+                            logger.debug(f"Detected potential Unix timestamp column: {col}")
+                            time_columns.append(col)
                 except:
                     pass
         
         return time_columns
 
     def _create_time_series_chart(self, df: pd.DataFrame, time_col: str, question: str) -> go.Figure:
-        """Create time series line chart"""
+        """Create time series line chart (ENHANCED: Unix timestamp + date parsing)"""
         
-        # Convert time column to datetime
         try:
-            df[time_col] = pd.to_datetime(df[time_col])
-        except:
-            pass
-        
-        # Sort by time
-        df = df.sort_values(time_col)
-        
-        # Get numeric columns to plot
-        numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+            # Make a copy to avoid modifying original
+            df = df.copy()
+            
+            # CRITICAL: Handle date conversion carefully
+            try:
+                logger.info(f"Converting {time_col} from dtype={df[time_col].dtype}")
+                
+                # First check if already datetime
+                if not pd.api.types.is_datetime64_any_dtype(df[time_col]):
+                    
+                    # STRATEGY 1: Try ISO format first (YYYY-MM-DD)
+                    try:
+                        df[time_col] = pd.to_datetime(df[time_col], format='%Y-%m-%d')
+                        logger.info(f"✅ Parsed {time_col} as ISO format (YYYY-MM-DD)")
+                    except:
+                        # STRATEGY 2: Check if Unix timestamps (numeric)
+                        try:
+                            if pd.api.types.is_numeric_dtype(df[time_col]):
+                                logger.info(f"⚠️ Detected numeric column, attempting Unix timestamp conversion")
+                                # Convert Unix timestamp (seconds) to datetime
+                                df[time_col] = pd.to_datetime(df[time_col], unit='s')
+                                logger.info(f"✅ Converted Unix timestamps to datetime")
+                            else:
+                                raise ValueError("Not numeric")
+                        except:
+                            # STRATEGY 3: Try mixed format
+                            try:
+                                df[time_col] = pd.to_datetime(df[time_col], format='mixed', dayfirst=False)
+                                logger.info(f"✅ Parsed {time_col} as mixed format")
+                            except:
+                                # STRATEGY 4: Last resort - let pandas infer
+                                df[time_col] = pd.to_datetime(df[time_col])
+                                logger.info(f"✅ Parsed {time_col} with inferred format")
+                
+                # Validate dates - check for epoch issue
+                min_date = df[time_col].min()
+                max_date = df[time_col].max()
+                
+                logger.info(f"Date range: {min_date} to {max_date}")
+                
+                # Check if we got epoch dates (1969-1970 range = bad parsing)
+                epoch = pd.Timestamp('1970-01-01')
+                if min_date < epoch and max_date < pd.Timestamp('1975-01-01'):
+                    logger.error(f"⚠️ EPOCH ISSUE DETECTED: Dates are in 1969-1970 range")
+                    logger.error(f"Min: {min_date}, Max: {max_date}")
+                    logger.error(f"Column {time_col} appears to still be Unix timestamp or incorrectly parsed")
+                    
+                    # Try one more time with different units
+                    try:
+                        logger.info("Attempting alternative Unix timestamp conversion...")
+                        # Maybe timestamps are in milliseconds?
+                        df[time_col] = pd.to_datetime(df[time_col], unit='ms')
+                        min_date = df[time_col].min()
+                        max_date = df[time_col].max()
+                        if min_date > pd.Timestamp('2000-01-01'):
+                            logger.info(f"✅ Success with millisecond conversion! New range: {min_date} to {max_date}")
+                        else:
+                            raise ValueError("Still in wrong range")
+                    except Exception as retry_error:
+                        logger.error(f"❌ Alternative conversion failed: {retry_error}")
+                        return self._create_fallback_chart(f"Date parsing failed. Original range: {min_date} to {max_date}")
+                
+            except Exception as parse_error:
+                logger.error(f"❌ Failed to parse dates: {parse_error}")
+                return self._create_fallback_chart(f"Date parsing error: {str(parse_error)}")
+            
+            # Sort by time
+            df = df.sort_values(time_col)
+            
+            # Get numeric columns to plot
+            numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+            
+            if not numeric_cols:
+                logger.warning("⚠️ No numeric columns found for chart")
+                return None
+            
+            fig = go.Figure()
+            
+            # Add line for each metric (limit to 3)
+            for col in numeric_cols[:3]:
+                fig.add_trace(go.Scatter(
+                    x=df[time_col],
+                    y=df[col],
+                    mode='lines+markers',
+                    name=col,
+                    line=dict(width=2),
+                    marker=dict(size=6)
+                ))
+            
+            # Determine time granularity for title
+            try:
+                time_range = df[time_col].max() - df[time_col].min()
+                if time_range.days > 365:
+                    granularity = "Yearly"
+                elif time_range.days > 60:
+                    granularity = "Monthly"
+                elif time_range.days > 14:
+                    granularity = "Weekly"
+                else:
+                    granularity = "Daily"
+            except:
+                granularity = "Time Series"
+            
+            # FIXED: Use proper Plotly config parameter instead of deprecated keyword args
+            fig.update_layout(
+                title=f"{granularity} Trend: {question}",
+                xaxis_title=time_col.replace('_', ' ').title(),
+                yaxis_title="Value",
+                hovermode='x unified',
+                template='plotly_white',
+                showlegend=True,
+                height=500,
+                xaxis=dict(
+                    tickformat="%Y-%m-%d",
+                    type='date'
+                )
+            )
+            
+            # Use proper config instead of deprecated keyword arguments
+            config = {
+                'responsive': True,
+                'displayModeBar': True,
+                'displaylogo': False
+            }
+            
+            logger.info(f"✅ Successfully created time series chart")
+            return fig
+            
+        except Exception as e:
+            logger.error(f"❌ Error creating time series chart: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return self._create_fallback_chart(f"Error: {str(e)}")
+    
+    def _create_fallback_chart(self, error_msg: str = None) -> go.Figure:
+        """Create a simple placeholder chart if date parsing fails"""
+        logger.warning(f"⚠️ Creating fallback chart: {error_msg}")
         
         fig = go.Figure()
-        
-        # Add line for each metric
-        for col in numeric_cols[:3]:  # Limit to 3 metrics
-            fig.add_trace(go.Scatter(
-                x=df[time_col],
-                y=df[col],
-                mode='lines+markers',
-                name=col,
-                line=dict(width=2),
-                marker=dict(size=6)
-            ))
-        
-        # Determine time granularity for title
-        time_range = df[time_col].max() - df[time_col].min()
-        if time_range.days > 365:
-            granularity = "Yearly"
-        elif time_range.days > 60:
-            granularity = "Monthly"
-        elif time_range.days > 14:
-            granularity = "Weekly"
-        else:
-            granularity = "Daily"
-        
-        fig.update_layout(
-            title=f"{granularity} Trend: {question}",
-            xaxis_title=time_col.replace('_', ' ').title(),
-            yaxis_title="Value",
-            hovermode='x unified',
-            template='plotly_white',
-            showlegend=True,
-            height=500
+        msg = error_msg or "⚠️ Unable to parse dates. Please check the date format in your data."
+        fig.add_annotation(
+            text=msg,
+            xref="paper", yref="paper",
+            x=0.5, y=0.5, showarrow=False,
+            font=dict(size=14, color="red")
         )
-        
         return fig
     
     def _convert_numeric_columns(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -175,14 +300,7 @@ class VisualizationAgent:
         return 'bar'
     
     def _create_bar_chart(self, df: pd.DataFrame, x_col: str = None, y_cols: List[str] = None, title: str = None) -> go.Figure:
-        """Create bar chart
-        
-        Args:
-            df: DataFrame with data
-            x_col: Column name for x-axis (categorical)
-            y_cols: List of column names for y-axis (numeric)
-            title: Optional title for the chart
-        """
+        """Create bar chart"""
         
         # Use defaults if not provided
         if x_col is None:
@@ -241,14 +359,7 @@ class VisualizationAgent:
         return fig
     
     def _create_line_chart(self, df: pd.DataFrame, x_col: str = None, y_col: str = None, title: str = None) -> go.Figure:
-        """Create line chart for trends
-        
-        Args:
-            df: DataFrame with data
-            x_col: Column name for x-axis
-            y_col: Column name for y-axis (numeric)
-            title: Optional title for the chart
-        """
+        """Create line chart for trends"""
         
         # Use defaults if not provided
         if x_col is None:
@@ -280,14 +391,7 @@ class VisualizationAgent:
         return fig
     
     def _create_pie_chart(self, df: pd.DataFrame, labels_col: str = None, values_col: str = None, title: str = None) -> go.Figure:
-        """Create pie chart for proportions
-        
-        Args:
-            df: DataFrame with data
-            labels_col: Column name for labels (categorical)
-            values_col: Column name for values (numeric)
-            title: Optional title for the chart
-        """
+        """Create pie chart for proportions"""
         
         # Use defaults if not provided
         if labels_col is None:
@@ -314,11 +418,9 @@ class VisualizationAgent:
         return fig
     
     def process(self, data: List[Dict[str, Any]], question: str = None) -> go.Figure:
-        """Legacy method - calls create_visualization()
-        
-        Args:
-            data: List of dictionaries containing the data
-            question: Question or description for the visualization
-        """
+        """Legacy method - calls create_visualization()"""
         logger.warning("⚠️ process() is deprecated, use create_visualization() instead")
         return self.create_visualization(data, question=question)
+
+
+logger.info("✅ VisualizationAgent class defined (ENHANCED - Unix timestamp + Plotly config fix)")

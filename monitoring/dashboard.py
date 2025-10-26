@@ -85,7 +85,7 @@ with col3:
     auto_refresh = st.checkbox("Auto-refresh", value=False)
 
 with col4:
-    if st.button("🔄 Refresh Now", use_container_width=True):
+    if st.button("🔄 Refresh Now", width='stretch'):
         st.rerun()
 
 st.divider()

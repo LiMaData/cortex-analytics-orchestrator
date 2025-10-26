@@ -6,6 +6,7 @@ Tracks AI agents (TruLens), internal agents (traditional), and coordinates multi
 from typing import Dict, Any
 import logging
 import time
+from datetime import date, datetime
 from orchestrators.base import BaseOrchestrator
 
 logger = logging.getLogger(__name__)
@@ -70,6 +71,22 @@ class ConversationalOrchestrator(BaseOrchestrator):
         
         logger.info("✅ ConversationalOrchestrator initialized with all agents")
     
+    def _serialize_for_json(self, obj: Any) -> Any:
+        """
+        🔧 FIX: Convert non-JSON-serializable objects to strings
+        Handles date, datetime, and other special types
+        
+        This prevents: "Object of type date is not JSON serializable" errors
+        """
+        if isinstance(obj, dict):
+            return {key: self._serialize_for_json(value) for key, value in obj.items()}
+        elif isinstance(obj, (list, tuple)):
+            return [self._serialize_for_json(item) for item in obj]
+        elif isinstance(obj, (date, datetime)):
+            return obj.isoformat()
+        else:
+            return obj
+    
     def process_query(
         self, 
         query: str, 
@@ -107,11 +124,13 @@ class ConversationalOrchestrator(BaseOrchestrator):
                 data_time = time.time() - data_start
                 
                 # Monitor AI agent with TruLens or Cortex
+                # 🔧 FIX: Serialize data before passing to monitor (prevents JSON serialization errors)
                 if self.enable_monitoring and self.monitor:
+                    serialized_response = self._serialize_for_json(data_result)
                     self.monitor.track_ai_agent(
                         agent_name='DataAgent',
                         query=query,
-                        response=data_result,
+                        response=serialized_response,
                         context=[data_result.get('sql', '')],
                         execution_time=data_time
                     )
@@ -184,42 +203,44 @@ class ConversationalOrchestrator(BaseOrchestrator):
                         
                         # If LLM was used, track as AI agent
                         if source == 'llm':
+                            # 🔧 FIX: Serialize benchmarks
+                            serialized_benchmarks = self._serialize_for_json(benchmarks)
                             self.monitor.track_ai_agent(
                                 agent_name='BenchmarkAgent',
                                 query=query,
-                                response=benchmarks,
+                                response=serialized_benchmarks,
                                 context=[f"Metric: {benchmarks.get('metric')}"],
                                 execution_time=benchmark_time
                             )
+                        # If database was used, track as internal agent
                         else:
-                            # Database or hardcoded - track as internal
                             self.monitor.track_internal_agent(
                                 agent_name='BenchmarkAgent',
-                                operation='fetch_benchmarks',
-                                input_data={'metric': benchmarks.get('metric')},
+                                operation='fetch_benchmark',
+                                input_data={'query': query},
                                 output_data=benchmarks,
                                 execution_time=benchmark_time,
-                                success=benchmarks.get('success', False)
+                                success=True
                             )
                     
                     response['benchmarks'] = benchmarks
                     agents_used.append('BenchmarkAgent')
-                    logger.info(f"✅ Benchmarks retrieved from {source}")
+                    logger.info(f"✅ Benchmarks fetched ({source})")
                     
                 except Exception as e:
                     benchmark_time = time.time() - benchmark_start
-                    logger.warning(f"⚠️ Benchmark fetch failed: {e}")
+                    logger.warning(f"⚠️ Benchmark generation failed: {e}")
                     
                     if self.enable_monitoring and self.monitor:
-                        self.monitor.track_internal_agent(
+                        self.monitor.track_ai_agent(
                             agent_name='BenchmarkAgent',
-                            operation='fetch_benchmarks',
-                            input_data={'query': query},
-                            output_data=None,
-                            execution_time=benchmark_time,
-                            success=False,
-                            error=str(e)
+                            query=query,
+                            response={'success': False, 'error': str(e)},
+                            execution_time=benchmark_time
                         )
+                    
+                    # Don't fail entire query if benchmarks fail
+                    response['benchmark_error'] = str(e)
             
             # ================================================================
             # STEP 3: INSIGHT AGENT (AI - LLM for insights)
@@ -230,19 +251,23 @@ class ConversationalOrchestrator(BaseOrchestrator):
                 
                 try:
                     insights = self.insight_agent.process(
-                        data=data_result['data'],
                         query=query,
-                        sql=data_result.get('sql'),
+                        data=data_result['data'],
                         benchmarks=benchmarks
                     )
                     insight_time = time.time() - insight_start
                     
-                    # Monitor AI agent with TruLens
+                    # Monitor AI agent
+                    # 🔧 FIX: Serialize data before passing to monitor
                     if self.enable_monitoring and self.monitor:
+                        serialized_insight_response = self._serialize_for_json({
+                            'success': True,
+                            'insights': insights
+                        })
                         self.monitor.track_ai_agent(
                             agent_name='InsightAgent',
                             query=query,
-                            response={'insights': insights, 'success': True},
+                            response=serialized_insight_response,
                             context=[
                                 data_result.get('sql', ''),
                                 benchmarks.get('context', '') if benchmarks else ''
@@ -322,12 +347,14 @@ class ConversationalOrchestrator(BaseOrchestrator):
             total_time = time.time() - orchestration_start
             
             if self.enable_monitoring and self.monitor:
+                # 🔧 FIX: Serialize response before tracking
+                serialized_response = self._serialize_for_json(response)
                 self.monitor.track_orchestrator(
                     query=query,
                     total_time=total_time,
                     agents_used=agents_used,
                     overall_success=True,
-                    response=response
+                    response=serialized_response
                 )
             
             logger.info(f"✅ Query processing complete: {total_time:.2f}s, {len(agents_used)} agents")
@@ -359,21 +386,47 @@ class ConversationalOrchestrator(BaseOrchestrator):
             }
     
     def get_status(self) -> Dict[str, Any]:
-        """Get orchestrator status"""
-        status = {
-            'name': 'ConversationalOrchestrator',
-            'mode': 'conversational',
-            'agents_loaded': ['data', 'visualization', 'insight', 'benchmark'],
-            'config_valid': self.config.validate(),
-            'monitoring_enabled': self.enable_monitoring
-        }
+        """Get status including monitoring stats"""
         
-        # Add monitoring stats if available
-        if self.enable_monitoring and self.monitor:
-            dashboard_data = self.monitor.get_dashboard_data()
-            status['monitoring_stats'] = dashboard_data
+        try:
+            # Access the monitor
+            if self.monitor:
+                dashboard_data = self.monitor.get_dashboard_data()
+                
+                return {
+                    'initialized': True,
+                    'monitoring_enabled': self.enable_monitoring,
+                    'monitoring_stats': {
+                        'total_queries': dashboard_data.get('total_queries', 0),
+                        'total_agent_calls': dashboard_data.get('total_agent_calls', 0),
+                        'ai_agent_calls': dashboard_data.get('ai_agent_calls', 0),
+                        'internal_agent_calls': dashboard_data.get('internal_agent_calls', 0),
+                        'avg_query_time': dashboard_data.get('avg_query_time', 0),
+                        'success_rate': dashboard_data.get('success_rate', 0)
+                    }
+                }
+            else:
+                return {
+                    'initialized': True,
+                    'monitoring_enabled': False,
+                    'monitoring_stats': {
+                        'total_queries': 0,
+                        'avg_query_time': 0,
+                        'success_rate': 0
+                    }
+                }
         
-        return status
+        except Exception as e:
+            logger.warning(f"Failed to get status: {e}")
+            return {
+                'initialized': False,
+                'error': str(e),
+                'monitoring_stats': {
+                    'total_queries': 0,
+                    'avg_query_time': 0,
+                    'success_rate': 0
+                }
+            }
     
     def get_performance_report(self) -> Dict[str, Any]:
         """
