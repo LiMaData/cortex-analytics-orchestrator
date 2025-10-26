@@ -49,62 +49,134 @@ class CortexAnalystTool:
     
     def _clean_sql(self, text: str) -> str:
         """
-        🔧 IMPROVED: Clean SQL with better validation
-        Fixes malformed SQL like unexpected closing parentheses
+        🔧 ENHANCED: Clean SQL with parentheses balancing and GROUP BY validation
+        Fixes: Missing closing parens, incomplete clauses, EOF errors
         """
-        # Remove markdown code blocks
+        import re
+        
+        # Remove markdown
         text = re.sub(r'```sql\s*', '', text, flags=re.IGNORECASE)
         text = re.sub(r'```\s*', '', text)
         text = text.strip()
         
-        # Check if response starts with explanation
-        explanation_keywords = ['to answer', 'this query', 'here is', 'the following', 
-                               'we need', 'first', 'let me', 'i will']
+        if not text:
+            raise ValueError("LLM returned empty response")
         
-        if any(text.lower().startswith(keyword) for keyword in explanation_keywords):
+        # Remove explanatory text before SQL
+        explanation_words = ['to answer', 'this query', 'here is', 'the following', 
+                            'we need', 'first', 'let me', 'i will', 'i would']
+        
+        first_line_lower = text.split('\n')[0].lower()
+        if any(word in first_line_lower for word in explanation_words):
             match = re.search(r'((?:WITH|SELECT).*?)(?:;|\Z)', text, re.IGNORECASE | re.DOTALL)
             if match:
                 text = match.group(1)
             else:
-                raise ValueError(f"LLM returned explanation without SQL: {text[:100]}...")
+                raise ValueError(f"LLM added explanation, couldn't extract SQL: {text[:100]}")
         
-        # Extract SQL if multiple statements
+        # Extract SQL if mixed with other content
         if 'SELECT' in text.upper():
-            match = re.search(r'(SELECT.*?;?)\s*$', text, re.IGNORECASE | re.DOTALL)
+            match = re.search(r'((?:WITH\s+.*?\s+)?SELECT.*?)(?:;|\Z)', text, re.IGNORECASE | re.DOTALL)
             if match:
                 text = match.group(1)
         
-        # Remove trailing semicolon
+        # Clean up
         text = text.rstrip(';').strip()
         
-        # 🔧 NEW: Remove trailing closing parentheses that cause syntax errors
-        text = re.sub(r'\s*\)\s*$', '', text)
+        # Remove lines that are ONLY closing parentheses
+        lines = [line for line in text.split('\n') 
+                if line.strip() and not re.match(r'^\)+$', line.strip())]
+        text = '\n'.join(lines)
         
-        # 🔧 NEW: Remove empty FROM clauses like "FROM )"
-        text = re.sub(r'\bFROM\s*\)', '', text, flags=re.IGNORECASE)
-        
-        # 🔧 NEW: Remove empty WHERE clauses like "WHERE )"
-        text = re.sub(r'\bWHERE\s*\)', '', text, flags=re.IGNORECASE)
-        
-        # 🔧 NEW: Remove stray closing parens at line 7
+        # ✅ NEW: Detect incomplete function calls at end of lines
+        # This catches: GROUP BY DATE_TRUNC('MONTH', SENDDATE  <- missing )
         lines = text.split('\n')
-        cleaned_lines = []
         for i, line in enumerate(lines):
-            # Skip lines that are just closing parentheses
-            if line.strip() == ')':
-                continue
-            cleaned_lines.append(line)
-        text = '\n'.join(cleaned_lines)
+            # Check if line has unclosed function call
+            if re.search(r'\w+\([^)]*$', line.strip()):
+                # Count parens in this line
+                open_parens = line.count('(')
+                close_parens = line.count(')')
+                if open_parens > close_parens:
+                    logger.warning(f"⚠️ Line {i+1} has unclosed parentheses: {line.strip()}")
+                    # Add missing closing parens
+                    missing = open_parens - close_parens
+                    lines[i] = line + ')' * missing
+                    logger.info(f"✅ Fixed by adding {missing} closing paren(s)")
         
-        # Final validation - make sure parentheses are balanced
-        open_count = text.count('(')
-        close_count = text.count(')')
-        if close_count > open_count:
-            # Remove excess closing parens
-            extra_closes = close_count - open_count
-            for _ in range(extra_closes):
-                text = text.rstrip(')')
+        text = '\n'.join(lines)
         
+        # ✅ ENHANCED: Balance ALL parentheses in the entire query
+        open_parens = text.count('(')
+        close_parens = text.count(')')
+        
+        if close_parens > open_parens:
+            # Too many closing parens - remove excess from end
+            excess = close_parens - open_parens
+            logger.warning(f"⚠️ Removing {excess} excess closing parentheses")
+            for _ in range(excess):
+                pos = text.rfind(')')
+                if pos != -1:
+                    text = text[:pos] + text[pos + 1:]
+        
+        elif open_parens > close_parens:
+            # Too many opening parens - add missing closing parens
+            missing = open_parens - close_parens
+            logger.warning(f"⚠️ Adding {missing} missing closing parentheses")
+            text = text + ')' * missing
+        
+        # Remove empty clauses
+        text = re.sub(r'\bFROM\s*\)', 'FROM', text, flags=re.IGNORECASE)
+        text = re.sub(r'\bWHERE\s*\)', 'WHERE', text, flags=re.IGNORECASE)
+        
+        # Remove trailing closing parens that create syntax errors
+        text = re.sub(r'\)\s*$', '', text)
+        
+        # Re-balance after cleanup (sometimes removing trailing ) creates imbalance)
+        open_parens = text.count('(')
+        close_parens = text.count(')')
+        if open_parens > close_parens:
+            missing = open_parens - close_parens
+            text = text + ')' * missing
+            logger.info(f"✅ Re-balanced: added {missing} closing paren(s)")
+        
+        text = text.strip()
+        
+        # Validate: Must start with SELECT or WITH
+        if not text.upper().startswith(('SELECT', 'WITH')):
+            raise ValueError(f"SQL must start with SELECT or WITH: {text[:100]}")
+        
+        # ✅ ENHANCED: Detect specific incomplete patterns
+        incomplete_patterns = [
+            (r'GROUP\s+BY\s+\w+\([^)]*$', 'GROUP BY with unclosed function'),
+            (r'ORDER\s+BY\s+\w+\([^)]*$', 'ORDER BY with unclosed function'),
+            (r'FROM\s*$', 'FROM without table'),
+            (r'WHERE\s*$', 'WHERE without condition'),
+            (r'JOIN\s*$', 'JOIN without table'),
+            (r'ON\s*$', 'ON without condition'),
+        ]
+        
+        for pattern, error_msg in incomplete_patterns:
+            if re.search(pattern, text, re.IGNORECASE):
+                raise ValueError(f"Incomplete SQL - {error_msg}: ...{text[-100:]}")
+        
+        # ✅ NEW: Specific validation for GROUP BY and ORDER BY clauses
+        # Check if GROUP BY or ORDER BY exists but looks incomplete
+        group_by_match = re.search(r'GROUP\s+BY\s+(.+?)(?:ORDER|LIMIT|$)', text, re.IGNORECASE | re.DOTALL)
+        if group_by_match:
+            group_clause = group_by_match.group(1).strip()
+            # Check if parentheses are balanced in GROUP BY
+            if group_clause.count('(') != group_clause.count(')'):
+                raise ValueError(f"Unbalanced parentheses in GROUP BY clause: {group_clause}")
+        
+        order_by_match = re.search(r'ORDER\s+BY\s+(.+?)(?:LIMIT|$)', text, re.IGNORECASE | re.DOTALL)
+        if order_by_match:
+            order_clause = order_by_match.group(1).strip()
+            # Check if parentheses are balanced in ORDER BY
+            if order_clause.count('(') != order_clause.count(')'):
+                raise ValueError(f"Unbalanced parentheses in ORDER BY clause: {order_clause}")
+        
+        logger.info(f"✅ SQL validated and balanced: {len(text)} chars, {text.count('(')} parens")
         return text.strip()
     
     def _fix_date_columns(self, data: list) -> list:
@@ -135,58 +207,64 @@ class CortexAnalystTool:
         clean_sql_text = None
         
         try:
-            # Improved prompt with better SQL generation instructions
-            prompt = f"""You are a SQL generator. Learn from the VERIFIED QUERIES examples and apply the SAME PATTERNS to new questions.
+            # ✅ ENHANCED PROMPT: Emphasizes parentheses and completeness
+            prompt = f"""You are a SQL code generator. Return ONLY complete, executable SQL.
 
-{self.schema_context}
+    {self.schema_context}
 
-PATTERN LEARNING RULES:
-1. For "X by market" → Use GROUP BY BUSINESSUNIT (email table) or COUNTRY_CODE (conversion table)
-2. For "X this week" → WHERE date >= DATE_TRUNC('week', CURRENT_DATE())
-3. For "X last month" → WHERE date >= DATEADD(month, -1, CURRENT_DATE())
-4. For "rate" calculations → (SUM(numerator) / NULLIF(SUM(denominator), 0)) * 100
-5. For specific market (VCUS, VCUK, etc.) → WHERE BUSINESSUNIT = 'X' or COUNTRY_CODE = 'X'
-6. FOR TIME-SERIES QUERIES: ALWAYS use DATE_TRUNC('MONTH', date_column) AS DATE, NEVER EXTRACT(MONTH)
-7. Apply patterns from verified queries to similar questions
-8. For year-month queries: Use YEAR(date_col), MONTH(date_col) with proper formatting
-9. CRITICAL: Always close all parentheses - do NOT have unexpected closing parens
+    🚨 CRITICAL RULES:
+    1. Return ONLY SQL code - NO explanations, NO comments, NO text
+    2. SQL MUST be 100% COMPLETE - every clause must be finished
+    3. Start with SELECT or WITH - nothing else
+    4. CLOSE ALL PARENTHESES - count them before returning!
+    5. GROUP BY and ORDER BY must have complete function calls
+    6. For time-series: DATE_TRUNC('MONTH', date_column) AS month
+    7. Double-check: Every opening ( has a matching closing )
 
-CRITICAL SQL RULES:
-- Return ONLY executable SQL
-- NO explanations, NO comments, NO text
-- Start directly with SELECT or WITH
-- Use physical column names (BUSINESSUNIT not market, SENDDATE not send_date)
-- For any trend/time-series query: DATE_TRUNC('MONTH', SENDDATE) AS DATE (not EXTRACT!)
-- Ensure ALL parentheses are properly closed
-- Do NOT add extra closing parentheses at the end
-- Do NOT have FROM ) or WHERE ) - these are invalid
-- Test mentally: Does the query have balanced parentheses?
+    ❌ INVALID (causes EOF error):
+    GROUP BY DATE_TRUNC('MONTH', SENDDATE     ← Missing )
+    ORDER BY DATE_TRUNC('MONTH', date         ← Missing )
 
-USER QUESTION: {question}
+    ✅ VALID:
+    GROUP BY DATE_TRUNC('MONTH', SENDDATE)    ← Complete!
+    ORDER BY DATE_TRUNC('MONTH', date)        ← Complete!
 
-SQL CODE (ONLY SQL, nothing else):"""
+    PARENTHESES CHECK:
+    - SUM(OPENS) ✅ balanced: 1 open, 1 close
+    - DATE_TRUNC('MONTH', date) ✅ balanced: 1 open, 1 close
+    - DATE_TRUNC('MONTH', date ❌ INVALID: 1 open, 0 close
 
+    USER QUESTION: {question}
+
+    Generate ONLY complete SQL with all parentheses closed:"""
+
+            # Generate SQL
             result = self.session.sql(f"""
                 SELECT SNOWFLAKE.CORTEX.COMPLETE(
                     'mistral-large',
-                    '{prompt.replace("'", "''")}'
+                    '{prompt.replace("'", "''")}',
+                    {{'temperature': 0.1}}
                 ) AS sql_text
             """).collect()
             
             raw_sql = result[0]['SQL_TEXT']
+            logger.info(f"🔍 Raw LLM output ({len(raw_sql)} chars): {raw_sql[:200]}...")
+            
+            # Clean and validate the SQL
             clean_sql_text = self._clean_sql(raw_sql)
             
-            # Validation: Must start with SQL keyword
+            # Final validation
             if not clean_sql_text.strip().upper().startswith(('SELECT', 'WITH')):
-                raise ValueError(f"Invalid SQL generated: {clean_sql_text[:100]}")
+                raise ValueError(f"Invalid SQL (doesn't start with SELECT/WITH): {clean_sql_text[:100]}")
             
-            # 🔧 NEW: Validate SQL structure before executing
-            if '()' in clean_sql_text or clean_sql_text.endswith(')'):
-                logger.warning(f"⚠️ Potential SQL syntax issue detected, attempting fix...")
-                # Remove trailing parens
-                clean_sql_text = re.sub(r'\)\s*$', '', clean_sql_text)
+            # Check parentheses are balanced
+            if clean_sql_text.count('(') != clean_sql_text.count(')'):
+                raise ValueError(
+                    f"Unbalanced parentheses: "
+                    f"{clean_sql_text.count('(')} open, {clean_sql_text.count(')')} close"
+                )
             
-            logger.info(f"📝 Generated SQL: {clean_sql_text[:150]}...")
+            logger.info(f"✅ Validated SQL ({len(clean_sql_text)} chars): {clean_sql_text[:150]}...")
             
             # Execute the SQL
             data = self.session.sql(clean_sql_text).collect()
@@ -204,15 +282,21 @@ SQL CODE (ONLY SQL, nothing else):"""
             }
             
         except Exception as e:
-            logger.error(f"❌ Query failed: {str(e)}")
+            error_msg = str(e)
+            logger.error(f"❌ Query failed: {error_msg}")
+            
+            # Provide helpful error message
+            if 'unexpected <EOF>' in error_msg or 'syntax error' in error_msg:
+                logger.error(f"💡 SQL appears incomplete. Raw SQL was: {clean_sql_text}")
+            
             return {
                 'success': False,
                 'sql': clean_sql_text,
                 'results': [],
                 'row_count': 0,
-                'error': str(e)
+                'error': error_msg
             }
-    
+        
     def execute_sql(self, sql: str) -> Dict[str, Any]:
         """Execute raw SQL directly"""
         try:

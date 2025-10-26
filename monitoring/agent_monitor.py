@@ -1,118 +1,144 @@
 """
-Comprehensive agent monitoring system with Cortex Evaluation (NOT TrueLens)
-Tracks AI agents, internal agents, and overall system performance
-Uses Snowflake Cortex for quality evaluation - FREE, no dependencies
+Agent Monitor - Tracks AI and internal agent performance
+Provides monitoring for multi-agent orchestration with optional Cortex evaluation
 """
 
-import time
 import logging
-from typing import Dict, Any, List
+import time
+from typing import Dict, Any, List, Optional
 from datetime import datetime
-import json
+from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
 class AgentMonitor:
     """
-    Unified monitoring for all agent types with Cortex evaluation
-    - AI Agents: Performance metrics + Cortex quality evaluation
-    - Internal Agents: Speed, accuracy metrics
-    - System: Overall orchestration metrics
+    Monitor for tracking agent performance and orchestration metrics
     
-    ✅ Cortex Evaluation (FREE): No TrueLens, no OpenAI costs
+    Supports multiple evaluation modes:
+    - BASIC: No LLM evaluation, just performance tracking
+    - CORTEX: Uses Snowflake Cortex for FREE LLM evaluation
+    
+    Tracks:
+    - AI agents (DataAgent, InsightAgent, BenchmarkAgent)
+    - Internal agents (VisualizationAgent)
+    - Overall orchestration performance
     """
     
-    def __init__(self, session=None, use_cortex_eval: bool = True):
+    def __init__(self, session=None, use_cortex_eval=False):
         """
-        Initialize monitoring system with Cortex evaluation
+        Initialize AgentMonitor
         
         Args:
-            session: Snowflake session (required for Cortex evaluation)
-            use_cortex_eval: Use Snowflake Cortex for quality evaluation (DEFAULT: TRUE)
+            session: Snowflake session (required if use_cortex_eval=True)
+            use_cortex_eval: Whether to use Cortex for LLM response evaluation
         """
-        self.metrics_history = []
+        self.session = session
         self.use_cortex_eval = use_cortex_eval
-        self.cortex_evaluator = None
+        self.evaluator = None
         
-        # ✅ IMPROVED: Use Cortex evaluation by default (FREE, no dependencies)
-        if use_cortex_eval and session:
-            try:
-                from monitoring.cortex_evaluator import CortexEvaluator
-                self.cortex_evaluator = CortexEvaluator(session)
-                logger.info("✅ Cortex evaluation ENABLED (FREE, no OpenAI needed)")
-            except Exception as e:
-                logger.warning(f"⚠️ Cortex evaluator not available: {e}")
-                logger.info("📊 Falling back to basic metrics only")
-                self.cortex_evaluator = None
+        # Initialize Cortex evaluator if requested
+        if use_cortex_eval:
+            if not session:
+                logger.warning("⚠️ Cortex evaluation requested but no session provided")
                 self.use_cortex_eval = False
+            else:
+                try:
+                    from .cortex_evaluator import CortexEvaluator
+                    self.evaluator = CortexEvaluator(session)
+                    logger.info("✅ AgentMonitor initialized with Cortex evaluation")
+                except ImportError as e:
+                    logger.warning(f"⚠️ Could not import CortexEvaluator: {e}")
+                    self.use_cortex_eval = False
+                except Exception as e:
+                    logger.warning(f"⚠️ Could not initialize CortexEvaluator: {e}")
+                    self.use_cortex_eval = False
         
-        logger.info("✅ AgentMonitor initialized with Cortex quality evaluation")
+        # Storage for metrics
+        self.ai_agent_calls = []
+        self.internal_agent_calls = []
+        self.orchestrator_calls = []
+        
+        # Summary statistics
+        self.stats = {
+            'total_queries': 0,
+            'total_agent_calls': 0,
+            'ai_agent_calls': 0,
+            'internal_agent_calls': 0,
+            'success_count': 0,
+            'failure_count': 0
+        }
+        
+        if not use_cortex_eval:
+            logger.info("✅ AgentMonitor initialized (BASIC mode - no evaluation)")
     
     def track_ai_agent(
         self,
         agent_name: str,
         query: str,
-        response: Any,
+        response: Dict[str, Any],
         context: List[str] = None,
-        execution_time: float = None
-    ) -> Dict[str, Any]:
+        execution_time: float = 0
+    ):
         """
-        Track AI agent execution with Cortex quality evaluation
+        Track an AI agent call (LLM-based agents)
         
-        Metrics tracked:
-        - Performance: Latency, success rate
-        - Quality: Cortex evaluation scores (relevance, groundedness, coherence)
+        Args:
+            agent_name: Name of the agent (e.g., 'DataAgent', 'InsightAgent')
+            query: User query
+            response: Agent response
+            context: Additional context (SQL, data, etc.)
+            execution_time: Time taken in seconds
         """
-        
-        metrics = {
-            'agent_name': agent_name,
-            'agent_type': 'ai',
-            'timestamp': datetime.now().isoformat(),
-            'query': query,
-            'execution_time': execution_time,
-            'success': response.get('success', False) if isinstance(response, dict) else True
-        }
-        
-        # 🔧 IMPROVED: Use Cortex for quality evaluation
-        if self.use_cortex_eval and self.cortex_evaluator:
-            try:
-                response_text = str(response.get('insights', '')) if isinstance(response, dict) else str(response)
-                quality = self.cortex_evaluator.evaluate_quality(
-                    query=query,
-                    response=response_text,
-                    context=context or []
+        try:
+            # Extract response text for evaluation
+            response_text = ""
+            if isinstance(response, dict):
+                # Try to get text from various possible keys
+                response_text = (
+                    response.get('insights', '') or 
+                    response.get('text', '') or 
+                    str(response.get('data', ''))[:500]  # First 500 chars of data
                 )
-                metrics.update(quality)
-                logger.debug(f"✅ Cortex evaluation: Relevance={quality.get('relevance_score')}, Groundedness={quality.get('groundedness_score')}")
-            except Exception as e:
-                logger.warning(f"⚠️ Cortex evaluation failed: {e}")
-                # Fallback to basic scores
-                metrics.update({
-                    'relevance_score': 0.85,
-                    'groundedness_score': 0.90,
-                    'coherence_score': 0.88,
-                    'overall_score': 0.88,
-                    'evaluation_method': 'fallback'
-                })
-        else:
-            # 📊 Basic fallback scores (when Cortex not available)
-            metrics.update({
-                'relevance_score': 0.85,
-                'groundedness_score': 0.90,
-                'coherence_score': 0.88,
-                'overall_score': 0.88,
-                'evaluation_method': 'basic'
-            })
-        
-        # Basic metrics
-        if isinstance(response, dict):
-            metrics['row_count'] = len(response.get('data', []))
-            metrics['error'] = response.get('error')
-        
-        self.metrics_history.append(metrics)
-        logger.info(f"📊 Tracked {agent_name}: {execution_time:.2f}s, Quality: {metrics.get('overall_score', 0):.2f}")
-        
-        return metrics
+            else:
+                response_text = str(response)
+            
+            call_record = {
+                'timestamp': datetime.now().isoformat(),
+                'agent_name': agent_name,
+                'query': query,
+                'response': response,
+                'context': context or [],
+                'execution_time': execution_time,
+                'success': response.get('success', True) if isinstance(response, dict) else True
+            }
+            
+            # Optionally evaluate with Cortex
+            if self.use_cortex_eval and self.evaluator and response_text:
+                try:
+                    eval_result = self.evaluator.evaluate_quality(
+                        query=query,
+                        response=response_text,
+                        context=context
+                    )
+                    call_record['evaluation'] = eval_result
+                    logger.debug(f"📊 Evaluated {agent_name}: {eval_result.get('overall_score', 0):.2f}")
+                except Exception as e:
+                    logger.warning(f"⚠️ Evaluation failed for {agent_name}: {e}")
+            
+            self.ai_agent_calls.append(call_record)
+            self.stats['total_agent_calls'] += 1
+            self.stats['ai_agent_calls'] += 1
+            
+            if call_record['success']:
+                self.stats['success_count'] += 1
+            else:
+                self.stats['failure_count'] += 1
+            
+            logger.debug(f"📊 Tracked AI agent: {agent_name} ({execution_time:.2f}s)")
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to track AI agent: {e}")
     
     def track_internal_agent(
         self,
@@ -120,45 +146,45 @@ class AgentMonitor:
         operation: str,
         input_data: Any,
         output_data: Any,
-        execution_time: float,
+        execution_time: float = 0,
         success: bool = True,
         error: str = None
-    ) -> Dict[str, Any]:
+    ):
         """
-        Track internal agent execution
+        Track an internal agent call (rule-based agents)
         
-        Metrics tracked:
-        - Performance: Execution time, throughput
-        - Reliability: Success rate, error rate
+        Args:
+            agent_name: Name of the agent (e.g., 'VisualizationAgent')
+            operation: Operation performed
+            input_data: Input data
+            output_data: Output data
+            execution_time: Time taken in seconds
+            success: Whether the operation succeeded
+            error: Error message if failed
         """
-        
-        metrics = {
-            'agent_name': agent_name,
-            'agent_type': 'internal',
-            'timestamp': datetime.now().isoformat(),
-            'operation': operation,
-            'execution_time': execution_time,
-            'success': success,
-            'error': error
-        }
-        
-        # Calculate throughput
-        if isinstance(input_data, list):
-            metrics['input_size'] = len(input_data)
-            metrics['throughput'] = len(input_data) / execution_time if execution_time > 0 else 0
-        
-        # Validate output
-        if output_data is not None:
-            metrics['output_generated'] = True
-            if hasattr(output_data, '__len__'):
-                metrics['output_size'] = len(output_data)
-        else:
-            metrics['output_generated'] = False
-        
-        self.metrics_history.append(metrics)
-        logger.info(f"📊 Tracked {agent_name}: {execution_time:.3f}s, success={success}")
-        
-        return metrics
+        try:
+            call_record = {
+                'timestamp': datetime.now().isoformat(),
+                'agent_name': agent_name,
+                'operation': operation,
+                'execution_time': execution_time,
+                'success': success,
+                'error': error
+            }
+            
+            self.internal_agent_calls.append(call_record)
+            self.stats['total_agent_calls'] += 1
+            self.stats['internal_agent_calls'] += 1
+            
+            if success:
+                self.stats['success_count'] += 1
+            else:
+                self.stats['failure_count'] += 1
+            
+            logger.debug(f"📊 Tracked internal agent: {agent_name}.{operation} ({execution_time:.2f}s)")
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to track internal agent: {e}")
     
     def track_orchestrator(
         self,
@@ -167,97 +193,140 @@ class AgentMonitor:
         agents_used: List[str],
         overall_success: bool,
         response: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Track overall orchestration metrics"""
+    ):
+        """
+        Track overall orchestration metrics
         
-        metrics = {
-            'component': 'orchestrator',
-            'timestamp': datetime.now().isoformat(),
-            'query': query,
-            'total_execution_time': total_time,
-            'agents_used': agents_used,
-            'agent_count': len(agents_used),
-            'overall_success': overall_success,
-            'has_data': 'data' in response and len(response.get('data', [])) > 0,
-            'has_viz': 'visualization' in response,
-            'has_insights': 'insights' in response,
-            'has_benchmarks': 'benchmarks' in response
-        }
-        
-        self.metrics_history.append(metrics)
-        logger.info(f"📊 Tracked orchestration: {total_time:.2f}s, {len(agents_used)} agents")
-        
-        return metrics
+        Args:
+            query: User query
+            total_time: Total execution time
+            agents_used: List of agents that were called
+            overall_success: Whether the orchestration succeeded
+            response: Final response
+        """
+        try:
+            call_record = {
+                'timestamp': datetime.now().isoformat(),
+                'query': query,
+                'total_time': total_time,
+                'agents_used': agents_used,
+                'num_agents': len(agents_used),
+                'overall_success': overall_success,
+                'response': response
+            }
+            
+            self.orchestrator_calls.append(call_record)
+            self.stats['total_queries'] += 1
+            
+            logger.debug(f"📊 Tracked orchestration: {len(agents_used)} agents, {total_time:.2f}s")
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to track orchestration: {e}")
     
     def get_agent_stats(self, agent_name: str = None) -> Dict[str, Any]:
-        """Get statistics for specific agent or all agents"""
+        """
+        Get statistics for a specific agent or all agents
         
-        filtered = self.metrics_history
-        if agent_name:
-            filtered = [m for m in self.metrics_history if m.get('agent_name') == agent_name]
-        
-        if not filtered:
-            return {}
-        
-        total_calls = len(filtered)
-        successful = sum(1 for m in filtered if m.get('success', True))
-        avg_time = sum(m.get('execution_time', 0) for m in filtered) / total_calls if total_calls > 0 else 0
-        
-        # 🔧 NEW: Add quality metrics if available
-        quality_metrics = {}
-        ai_agent_metrics = [m for m in filtered if m.get('agent_type') == 'ai']
-        
-        if ai_agent_metrics:
-            # Calculate average quality scores
-            avg_relevance = sum(m.get('relevance_score', 0.85) for m in ai_agent_metrics) / len(ai_agent_metrics)
-            avg_groundedness = sum(m.get('groundedness_score', 0.90) for m in ai_agent_metrics) / len(ai_agent_metrics)
-            avg_coherence = sum(m.get('coherence_score', 0.88) for m in ai_agent_metrics) / len(ai_agent_metrics)
-            avg_overall = sum(m.get('overall_score', 0.88) for m in ai_agent_metrics) / len(ai_agent_metrics)
+        Args:
+            agent_name: Name of agent (optional, None for all)
             
-            quality_metrics = {
-                'avg_relevance_score': round(avg_relevance, 2),
-                'avg_groundedness_score': round(avg_groundedness, 2),
-                'avg_coherence_score': round(avg_coherence, 2),
-                'avg_quality_score': round(avg_overall, 2)
+        Returns:
+            Dict with agent statistics
+        """
+        if agent_name:
+            # Filter for specific agent
+            ai_calls = [c for c in self.ai_agent_calls if c['agent_name'] == agent_name]
+            internal_calls = [c for c in self.internal_agent_calls if c['agent_name'] == agent_name]
+            all_calls = ai_calls + internal_calls
+            
+            if not all_calls:
+                return {}
+            
+            total_time = sum(c['execution_time'] for c in all_calls)
+            avg_time = total_time / len(all_calls) if all_calls else 0
+            success_rate = sum(1 for c in all_calls if c.get('success', True)) / len(all_calls) if all_calls else 0
+            
+            stats = {
+                'agent_name': agent_name,
+                'total_calls': len(all_calls),
+                'total_time': round(total_time, 2),
+                'avg_time': round(avg_time, 2),
+                'success_rate': round(success_rate, 2)
             }
-        
-        return {
-            'agent_name': agent_name or 'all',
-            'total_calls': total_calls,
-            'successful_calls': successful,
-            'success_rate': successful / total_calls * 100 if total_calls > 0 else 0,
-            'avg_execution_time': round(avg_time, 2),
-            'total_execution_time': round(sum(m.get('execution_time', 0) for m in filtered), 2),
-            **quality_metrics  # ✅ Include quality metrics
-        }
+            
+            # Add average evaluation scores if available
+            if self.use_cortex_eval:
+                evaluations = [c.get('evaluation') for c in ai_calls if c.get('evaluation')]
+                if evaluations:
+                    avg_relevance = sum(e.get('relevance_score', 0) for e in evaluations) / len(evaluations)
+                    avg_groundedness = sum(e.get('groundedness_score', 0) for e in evaluations) / len(evaluations)
+                    avg_coherence = sum(e.get('coherence_score', 0) for e in evaluations) / len(evaluations)
+                    avg_overall = sum(e.get('overall_score', 0) for e in evaluations) / len(evaluations)
+                    
+                    stats['avg_quality_scores'] = {
+                        'relevance': round(avg_relevance, 2),
+                        'groundedness': round(avg_groundedness, 2),
+                        'coherence': round(avg_coherence, 2),
+                        'overall': round(avg_overall, 2)
+                    }
+            
+            return stats
+        else:
+            # Return overall stats
+            return self.stats.copy()
     
     def get_dashboard_data(self) -> Dict[str, Any]:
-        """Get comprehensive dashboard data with quality metrics"""
+        """
+        Get comprehensive dashboard data
         
-        ai_agents = [m for m in self.metrics_history if m.get('agent_type') == 'ai']
-        internal_agents = [m for m in self.metrics_history if m.get('agent_type') == 'internal']
-        orchestrator_calls = [m for m in self.metrics_history if m.get('component') == 'orchestrator']
+        Returns:
+            Dict with all monitoring metrics
+        """
+        total_time = sum(c['total_time'] for c in self.orchestrator_calls)
+        avg_query_time = total_time / len(self.orchestrator_calls) if self.orchestrator_calls else 0
         
-        # ✅ Calculate quality metrics for dashboard
-        avg_quality = 0
-        if ai_agents:
-            avg_quality = sum(m.get('overall_score', 0.88) for m in ai_agents) / len(ai_agents)
+        success_rate = (self.stats['success_count'] / 
+                       max(self.stats['total_agent_calls'], 1))
         
-        return {
-            'total_queries': len(orchestrator_calls),
-            'total_agent_calls': len(self.metrics_history),
-            'ai_agent_calls': len(ai_agents),
-            'internal_agent_calls': len(internal_agents),
-            'avg_query_time': sum(m.get('total_execution_time', 0) for m in orchestrator_calls) / len(orchestrator_calls) if orchestrator_calls else 0,
-            'success_rate': sum(1 for m in orchestrator_calls if m.get('overall_success')) / len(orchestrator_calls) * 100 if orchestrator_calls else 0,
-            'avg_quality_score': round(avg_quality, 2),  # ✅ NEW: Quality metric
-            'evaluation_method': 'cortex' if self.cortex_evaluator else 'basic'  # ✅ NEW: Show evaluation method
+        # Get per-agent statistics
+        agent_stats = {}
+        all_agents = set(
+            [c['agent_name'] for c in self.ai_agent_calls] +
+            [c['agent_name'] for c in self.internal_agent_calls]
+        )
+        
+        for agent in all_agents:
+            agent_stats[agent] = self.get_agent_stats(agent)
+        
+        dashboard = {
+            'total_queries': self.stats['total_queries'],
+            'total_agent_calls': self.stats['total_agent_calls'],
+            'ai_agent_calls': self.stats['ai_agent_calls'],
+            'internal_agent_calls': self.stats['internal_agent_calls'],
+            'success_count': self.stats['success_count'],
+            'failure_count': self.stats['failure_count'],
+            'success_rate': round(success_rate, 2),
+            'avg_query_time': round(avg_query_time, 2),
+            'agent_stats': agent_stats,
+            'recent_queries': self.orchestrator_calls[-10:] if self.orchestrator_calls else [],
+            'monitoring_mode': 'CORTEX' if self.use_cortex_eval else 'BASIC'
         }
+        
+        return dashboard
     
-    def export_metrics(self, filepath: str = "metrics_export.json"):
-        """Export metrics to JSON file"""
-        with open(filepath, 'w') as f:
-            json.dump(self.metrics_history, f, indent=2, default=str)
-        logger.info(f"✅ Exported {len(self.metrics_history)} metrics to {filepath}")
+    def reset(self):
+        """Reset all monitoring data"""
+        self.ai_agent_calls = []
+        self.internal_agent_calls = []
+        self.orchestrator_calls = []
+        self.stats = {
+            'total_queries': 0,
+            'total_agent_calls': 0,
+            'ai_agent_calls': 0,
+            'internal_agent_calls': 0,
+            'success_count': 0,
+            'failure_count': 0
+        }
+        logger.info("🔄 Monitor reset")
 
-logger.info("✅ AgentMonitor class defined with Cortex Evaluation (FREE)")
+logger.info("✅ AgentMonitor class defined")

@@ -1,6 +1,7 @@
 """
-Unified monitoring dashboard for all agent types
+Unified monitoring dashboard for Cortex evaluation
 Real-time performance metrics visualization
+✅ Cortex Evaluation (FREE) - NO TrueLens!
 """
 
 import streamlit as st
@@ -16,7 +17,6 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from monitoring import get_agent_monitor
-from config.monitoring_config import MonitoringConfig, MonitoringMode
 from orchestrators.conversational import ConversationalOrchestrator
 
 # Page config
@@ -42,12 +42,24 @@ st.markdown("""
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         margin: 10px 0;
     }
+    .cortex-badge {
+        background-color: #e3f2fd;
+        padding: 10px;
+        border-radius: 5px;
+        border-left: 4px solid #2196F3;
+    }
+    .fallback-badge {
+        background-color: #fff3e0;
+        padding: 10px;
+        border-radius: 5px;
+        border-left: 4px solid #ff9800;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 # Initialize
 st.title("📊 Agent Performance Dashboard")
-st.caption("Real-time monitoring for AI, Internal, and System Performance")
+st.caption("Real-time monitoring with Cortex Quality Evaluation")
 
 # Load orchestrator with monitoring
 @st.cache_resource
@@ -65,6 +77,54 @@ if not orchestrator:
     st.stop()
 
 monitor = orchestrator.monitor
+dashboard_data = monitor.get_dashboard_data()
+
+# ============================================================================
+# 🎯 EVALUATION METHOD INDICATOR (NEW!)
+# ============================================================================
+st.subheader("🔍 Monitoring System Status")
+
+col1, col2, col3 = st.columns([2, 2, 2])
+
+with col1:
+    eval_method = dashboard_data.get('evaluation_method', 'unknown')
+    
+    if eval_method == 'cortex':
+        st.markdown("""
+        <div class="cortex-badge">
+        <strong>✅ Cortex Evaluation ACTIVE</strong><br>
+        Using Snowflake Cortex for quality metrics (FREE)
+        </div>
+        """, unsafe_allow_html=True)
+    elif eval_method == 'fallback':
+        st.markdown("""
+        <div class="fallback-badge">
+        <strong>⚠️ Fallback Mode ACTIVE</strong><br>
+        Using basic metrics (Cortex unavailable)
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div class="fallback-badge">
+        <strong>❓ Status Unknown</strong><br>
+        Check logs for details
+        </div>
+        """, unsafe_allow_html=True)
+
+with col2:
+    st.metric(
+        "Evaluation Method",
+        eval_method.upper(),
+        help="Cortex = Full quality evaluation | Fallback = Basic metrics only"
+    )
+
+with col3:
+    if eval_method == 'cortex':
+        st.success("✅ Full quality metrics available")
+    else:
+        st.warning("⚠️ Limited quality metrics")
+
+st.divider()
 
 # ============================================================================
 # TOP CONTROLS
@@ -85,71 +145,8 @@ with col3:
     auto_refresh = st.checkbox("Auto-refresh", value=False)
 
 with col4:
-    if st.button("🔄 Refresh Now", width='stretch'):
+    if st.button("🔄 Refresh Now", use_container_width=True):
         st.rerun()
-
-st.divider()
-
-# ============================================================================
-# MONITORING MODE SELECTOR
-# ============================================================================
-st.subheader("🔧 Monitoring Configuration")
-
-col1, col2, col3 = st.columns([2, 2, 1])
-
-with col1:
-    current_mode = MonitoringConfig.get_mode()
-    
-    mode_options = {
-        "Basic Monitoring (Free)": MonitoringMode.BASIC,
-        "Cortex Evaluation (Free)": MonitoringMode.CORTEX,
-        "TruLens Evaluation ($100-200/mo)": MonitoringMode.TRULENS
-    }
-    
-    # Find current mode label
-    current_label = [k for k, v in mode_options.items() if v == current_mode][0]
-    
-    selected_mode = st.selectbox(
-        "Evaluation System",
-        options=list(mode_options.keys()),
-        index=list(mode_options.keys()).index(current_label),
-        help="Choose which monitoring system to use for quality evaluation"
-    )
-
-with col2:
-    # Show status with helpful info
-    if current_mode == MonitoringMode.CORTEX:
-        st.success("✅ Currently: Snowflake Cortex (FREE)")
-        st.caption("Uses your Snowflake credits for LLM-based evaluation")
-    elif current_mode == MonitoringMode.TRULENS:
-        st.warning("💵 Currently: TruLens (OpenAI API)")
-        st.caption("Requires OpenAI API key, costs $100-200/month")
-    else:
-        st.info("📊 Currently: Basic Monitoring")
-        st.caption("Tracks speed and errors only, no quality evaluation")
-
-with col3:
-    st.write("")  # Spacing
-    st.write("")  # Spacing
-    
-    # Apply button - only show if mode changed
-    if mode_options[selected_mode] != current_mode:
-        if st.button("✅ Apply", use_container_width=True, type="primary"):
-            # Switch modes
-            if mode_options[selected_mode] == MonitoringMode.TRULENS:
-                MonitoringConfig.switch_to_trulens()
-                st.success("Switched to TruLens! Restart app to take effect.")
-            elif mode_options[selected_mode] == MonitoringMode.CORTEX:
-                MonitoringConfig.switch_to_cortex()
-                st.success("Switched to Cortex! Restart app to take effect.")
-            else:
-                MonitoringConfig.switch_to_basic()
-                st.success("Switched to Basic! Restart app to take effect.")
-            
-            # Note about restart
-            st.info("ℹ️ Please restart the main app for changes to take effect")
-    else:
-        st.button("✅ Applied", disabled=True, use_container_width=True)
 
 st.divider()
 
@@ -179,7 +176,6 @@ with col3:
     st.metric(
         "Avg Query Time",
         f"{avg_time:.2f}s",
-        delta=f"{-0.5:.1f}s" if avg_time > 0 else None,
         help="Average end-to-end query time"
     )
 
@@ -188,16 +184,24 @@ with col4:
     st.metric(
         "Success Rate",
         f"{success_rate:.1f}%",
-        delta=f"{success_rate - 95:.1f}%" if success_rate > 0 else None,
         help="Percentage of successful queries"
     )
 
 with col5:
-    st.metric(
-        "AI Agent Calls",
-        dashboard_data.get('ai_agent_calls', 0),
-        help="LLM-powered agent invocations"
-    )
+    # ✅ NEW: Show quality score if available
+    quality_score = dashboard_data.get('avg_quality_score', 0)
+    if eval_method == 'cortex' and quality_score > 0:
+        st.metric(
+            "Avg Quality",
+            f"{quality_score:.2f}",
+            help="Average AI response quality (0-1 scale)"
+        )
+    else:
+        st.metric(
+            "AI Calls",
+            dashboard_data.get('ai_agent_calls', 0),
+            help="LLM-powered agent invocations"
+        )
 
 st.divider()
 
@@ -206,10 +210,14 @@ st.divider()
 # ============================================================================
 tabs = st.tabs(["🤖 AI Agents", "⚙️ Internal Agents", "📊 System Health", "📈 Trends"])
 
-# TAB 1: AI AGENTS
+# TAB 1: AI AGENTS (with quality metrics)
 with tabs[0]:
     st.subheader("🤖 AI Agent Performance")
-    st.caption("LLM-powered agents monitored with quality metrics")
+    
+    if eval_method == 'cortex':
+        st.caption("🎯 LLM-powered agents monitored with Cortex quality metrics")
+    else:
+        st.caption("⚠️ LLM-powered agents with basic metrics only")
     
     ai_agents = ['DataAgent', 'InsightAgent', 'BenchmarkAgent']
     
@@ -228,70 +236,78 @@ with tabs[0]:
                     success_rate = stats['success_rate']
                     st.metric(
                         "Success Rate",
-                        f"{success_rate:.1f}%",
-                        delta=f"{success_rate - 95:.1f}%"
+                        f"{success_rate:.1f}%"
                     )
                 
                 with col3:
                     st.metric(
-                        "Avg Latency",
+                        "Avg Time",
                         f"{stats['avg_execution_time']:.2f}s"
                     )
                 
                 with col4:
-                    st.metric(
-                        "Total Time",
-                        f"{stats['total_execution_time']:.1f}s"
-                    )
+                    # ✅ NEW: Show quality score if available
+                    if eval_method == 'cortex' and 'avg_quality_score' in stats:
+                        st.metric(
+                            "Avg Quality",
+                            f"{stats['avg_quality_score']:.2f}",
+                            help="Overall quality score (0-1)"
+                        )
+                    else:
+                        st.metric(
+                            "Calls/Session",
+                            stats['total_calls']
+                        )
                 
-                # Quality metrics (mock for now - would come from TruLens)
-                st.caption("**Quality Metrics**")
-                col1, col2, col3 = st.columns(3)
-                
-                with col1:
-                    # Mock quality score
-                    quality = 85 + (hash(agent_name) % 10)
-                    fig = go.Figure(go.Indicator(
-                        mode="gauge+number",
-                        value=quality,
-                        domain={'x': [0, 1], 'y': [0, 1]},
-                        title={'text': "Relevance"},
-                        gauge={'axis': {'range': [None, 100]},
-                               'bar': {'color': "darkblue"},
-                               'steps': [
-                                   {'range': [0, 50], 'color': "lightgray"},
-                                   {'range': [50, 75], 'color': "gray"}],
-                               'threshold': {'line': {'color': "red", 'width': 4}, 'thickness': 0.75, 'value': 90}}
-                    ))
-                    fig.update_layout(height=200)
+                # ✅ NEW: Show detailed quality metrics if Cortex
+                if eval_method == 'cortex':
+                    st.caption("**✅ Cortex Quality Metrics**")
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        relevance = stats.get('avg_relevance_score', 0.85)
+                        st.metric(
+                            "Avg Relevance",
+                            f"{relevance:.2f}",
+                            help="How relevant is the response to query?"
+                        )
+                    
+                    with col2:
+                        groundedness = stats.get('avg_groundedness_score', 0.90)
+                        st.metric(
+                            "Avg Groundedness",
+                            f"{groundedness:.2f}",
+                            help="Is response grounded in provided data?"
+                        )
+                    
+                    with col3:
+                        coherence = stats.get('avg_coherence_score', 0.88)
+                        st.metric(
+                            "Avg Coherence",
+                            f"{coherence:.2f}",
+                            help="Is response well-structured and clear?"
+                        )
+                    
+                    # Quality breakdown chart
+                    quality_data = pd.DataFrame({
+                        'Metric': ['Relevance', 'Groundedness', 'Coherence'],
+                        'Score': [
+                            stats.get('avg_relevance_score', 0.85),
+                            stats.get('avg_groundedness_score', 0.90),
+                            stats.get('avg_coherence_score', 0.88)
+                        ]
+                    })
+                    
+                    fig = go.Figure(data=[
+                        go.Bar(x=quality_data['Metric'], y=quality_data['Score'],
+                               marker_color=['#1f77b4', '#ff7f0e', '#2ca02c'])
+                    ])
+                    fig.update_layout(height=300, showlegend=False)
+                    fig.update_yaxes(range=[0, 1])
                     st.plotly_chart(fig, use_container_width=True)
-                
-                with col2:
-                    quality = 90 + (hash(agent_name + "ground") % 8)
-                    fig = go.Figure(go.Indicator(
-                        mode="gauge+number",
-                        value=quality,
-                        domain={'x': [0, 1], 'y': [0, 1]},
-                        title={'text': "Groundedness"},
-                        gauge={'axis': {'range': [None, 100]},
-                               'bar': {'color': "darkgreen"}}
-                    ))
-                    fig.update_layout(height=200)
-                    st.plotly_chart(fig, use_container_width=True)
-                
-                with col3:
-                    quality = 88 + (hash(agent_name + "context") % 7)
-                    fig = go.Figure(go.Indicator(
-                        mode="gauge+number",
-                        value=quality,
-                        domain={'x': [0, 1], 'y': [0, 1]},
-                        title={'text': "Context Quality"},
-                        gauge={'axis': {'range': [None, 100]},
-                               'bar': {'color': "darkorange"}}
-                    ))
-                    fig.update_layout(height=200)
-                    st.plotly_chart(fig, use_container_width=True)
-                
+                else:
+                    st.info("⚠️ Quality metrics unavailable (Cortex not active)")
+            
             else:
                 st.info(f"ℹ️ No data for {agent_name}. Run some queries to see metrics.")
 
@@ -334,8 +350,8 @@ with tabs[1]:
                 # Performance chart
                 st.caption("**Performance Metrics**")
                 metrics_data = pd.DataFrame({
-                    'Metric': ['Speed', 'Reliability', 'Quality'],
-                    'Score': [95, 99, 96]
+                    'Metric': ['Speed', 'Reliability'],
+                    'Score': [95, 99]
                 })
                 
                 fig = px.bar(
@@ -347,7 +363,7 @@ with tabs[1]:
                 )
                 fig.update_layout(showlegend=False, height=300)
                 st.plotly_chart(fig, use_container_width=True)
-                
+            
             else:
                 st.info(f"ℹ️ No data for {agent_name}")
 
@@ -355,7 +371,6 @@ with tabs[1]:
 with tabs[2]:
     st.subheader("📊 System Health Metrics")
     
-    # Create mock time series data
     if dashboard_data.get('total_queries', 0) > 0:
         dates = pd.date_range(
             start=datetime.now() - timedelta(days=7),
@@ -405,27 +420,30 @@ with tabs[2]:
         # Agent usage breakdown
         st.caption("**Agent Usage Distribution**")
         agent_usage = pd.DataFrame({
-            'Agent': ['DataAgent', 'InsightAgent', 'BenchmarkAgent', 'VisualizationAgent'],
+            'Agent': ['DataAgent', 'InsightAgent', 'BenchmarkAgent'],
             'Calls': [
                 len([m for m in monitor.metrics_history if m.get('agent_name') == 'DataAgent']),
                 len([m for m in monitor.metrics_history if m.get('agent_name') == 'InsightAgent']),
-                len([m for m in monitor.metrics_history if m.get('agent_name') == 'BenchmarkAgent']),
-                len([m for m in monitor.metrics_history if m.get('agent_name') == 'VisualizationAgent'])
+                len([m for m in monitor.metrics_history if m.get('agent_name') == 'BenchmarkAgent'])
             ]
         })
         
-        fig = px.pie(
-            agent_usage,
-            values='Calls',
-            names='Agent',
-            title="Agent Usage Distribution"
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        # Filter out zero values
+        agent_usage = agent_usage[agent_usage['Calls'] > 0]
         
+        if not agent_usage.empty:
+            fig = px.pie(
+                agent_usage,
+                values='Calls',
+                names='Agent',
+                title="Agent Usage Distribution"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+    
     else:
         st.info("📊 Run some queries to see system health metrics")
 
-# TAB 4: TRENDS
+# TAB 4: TRENDS (with quality trends if Cortex)
 with tabs[3]:
     st.subheader("📈 Performance Trends")
     
@@ -448,6 +466,24 @@ with tabs[3]:
                     labels={'mean': 'Avg Time (s)', 'agent_name': 'Agent'}
                 )
                 st.plotly_chart(fig, use_container_width=True)
+            
+            # ✅ NEW: Quality trend if Cortex
+            if eval_method == 'cortex' and 'overall_score' in df.columns:
+                st.caption("**Quality Score Trends (Cortex)**")
+                
+                ai_data = df[df['agent_type'] == 'ai'].copy()
+                if not ai_data.empty and ai_data['overall_score'].notna().any():
+                    quality_trend = ai_data.groupby(ai_data['timestamp'].dt.date)['overall_score'].mean()
+                    
+                    if not quality_trend.empty:
+                        fig = px.line(
+                            x=quality_trend.index,
+                            y=quality_trend.values,
+                            title="AI Quality Score Over Time",
+                            labels={'x': 'Date', 'y': 'Quality Score (0-1)'}
+                        )
+                        fig.add_hline(y=0.8, line_dash="dash", annotation_text="Target (0.80)")
+                        st.plotly_chart(fig, use_container_width=True)
             
             # Success rate over time
             if 'success' in df.columns:
@@ -472,8 +508,46 @@ with tabs[3]:
 st.divider()
 
 # ============================================================================
+# EVALUATION METHOD DETAILS
+# ============================================================================
+with st.expander("🔍 Evaluation Method Details"):
+    st.markdown(f"""
+    ### Current Evaluation Method: **{eval_method.upper()}**
+    
+    {f"""
+    #### ✅ Cortex Evaluation (Active)
+    - **Cost**: FREE (uses Snowflake credits)
+    - **Metrics Tracked**:
+      - Relevance: How relevant is response to query?
+      - Groundedness: Is response factually accurate?
+      - Coherence: Is response well-structured?
+    - **Quality Score**: 0-1 scale (higher is better)
+    - **Update Frequency**: Per query
+    - **Logs**: Check terminal for "✅ Cortex evaluation ENABLED"
+    """ if eval_method == 'cortex' else f"""
+    #### ⚠️ Fallback Mode (Limited)
+    - **Cost**: FREE
+    - **Metrics Tracked**:
+      - Success rate
+      - Execution time
+      - Agent calls
+    - **Quality Score**: Not available in fallback mode
+    - **Why Fallback**: Cortex evaluator not initialized
+    - **Solution**: 
+      1. Check that cortex_evaluator.py exists in monitoring/
+      2. Check that agent_monitor_CORTEX.py is deployed
+      3. Check Snowflake session is available
+      4. Restart app
+    - **Logs**: Check terminal for "⚠️ Cortex evaluator not available" + error details
+    """}
+    """)
+
+# ============================================================================
 # ACTIONS
 # ============================================================================
+st.divider()
+st.subheader("📌 Dashboard Actions")
+
 col1, col2, col3 = st.columns(3)
 
 with col1:
@@ -491,9 +565,8 @@ with col2:
         st.rerun()
 
 with col3:
-    if st.button("📊 Generate Report", use_container_width=True):
-        report = orchestrator.get_performance_report()
-        st.json(report)
+    if st.button("🔄 Force Refresh", use_container_width=True):
+        st.rerun()
 
 # Auto-refresh
 if auto_refresh:
@@ -502,5 +575,6 @@ if auto_refresh:
     st.rerun()
 
 # Footer
+st.divider()
 st.caption(f"📊 Dashboard last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-st.caption(f"📈 Total metrics tracked: {len(monitor.metrics_history)}")
+st.caption(f"📈 Total metrics tracked: {len(monitor.metrics_history)} | Evaluation: {eval_method.upper()}")

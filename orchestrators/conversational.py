@@ -197,10 +197,11 @@ class ConversationalOrchestrator(BaseOrchestrator):
                     )
                     benchmark_time = time.time() - benchmark_start
                     
+                    # ✅ FIX: Extract source BEFORE monitoring check
+                    source = benchmarks.get('source', 'unknown') if benchmarks else 'unknown'
+                    
                     # Monitor based on source used
                     if self.enable_monitoring and self.monitor:
-                        source = benchmarks.get('source', 'unknown')
-                        
                         # If LLM was used, track as AI agent
                         if source == 'llm':
                             # 🔧 FIX: Serialize benchmarks
@@ -209,7 +210,7 @@ class ConversationalOrchestrator(BaseOrchestrator):
                                 agent_name='BenchmarkAgent',
                                 query=query,
                                 response=serialized_benchmarks,
-                                context=[f"Metric: {benchmarks.get('metric')}"],
+                                context=[f"Metric: {benchmarks.get('metric', 'unknown')}"],
                                 execution_time=benchmark_time
                             )
                         # If database was used, track as internal agent
@@ -225,7 +226,7 @@ class ConversationalOrchestrator(BaseOrchestrator):
                     
                     response['benchmarks'] = benchmarks
                     agents_used.append('BenchmarkAgent')
-                    logger.info(f"✅ Benchmarks fetched ({source})")
+                    logger.info(f"✅ Benchmarks fetched ({source})")  # ✅ Now source is always defined!
                     
                 except Exception as e:
                     benchmark_time = time.time() - benchmark_start
@@ -241,7 +242,7 @@ class ConversationalOrchestrator(BaseOrchestrator):
                     
                     # Don't fail entire query if benchmarks fail
                     response['benchmark_error'] = str(e)
-            
+
             # ================================================================
             # STEP 3: INSIGHT AGENT (AI - LLM for insights)
             # ================================================================
@@ -445,7 +446,7 @@ class ConversationalOrchestrator(BaseOrchestrator):
             'orchestrator': {}
         }
         
-        # AI Agents (with TruLens metrics)
+        # AI Agents (with Cortex/TruLens metrics)
         for agent_name in ['DataAgent', 'InsightAgent', 'BenchmarkAgent']:
             stats = self.monitor.get_agent_stats(agent_name)
             if stats:
