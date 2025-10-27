@@ -1,5 +1,6 @@
 """
 Streamlit UI for Multi-Agent Analytics Orchestrator
+FIXED: All use_container_width replaced with width='stretch'
 """
 
 import streamlit as st
@@ -82,9 +83,15 @@ with st.sidebar:
     
     # Agent toggles
     st.subheader("🤖 Active Agents")
+    
+    # ✅ ADD: DataAgent checkbox (disabled as it's required)
+    st.checkbox("🗃️ Data Agent", value=True, disabled=True, 
+                help="Required - Retrieves data from Snowflake")
+    
     with_benchmarks = st.checkbox("📊 Benchmarks", value=True, help="Compare to industry standards")
     with_insights = st.checkbox("💡 AI Insights", value=True, help="Generate insights with LLM")
     with_viz = st.checkbox("📈 Visualization", value=True, help="Auto-generate charts")
+    # with_analysis = st.checkbox("📊 Analysis", value=True, help="Perform in-depth analysis")
     
     # Processing visualization toggle
     st.divider()
@@ -96,7 +103,8 @@ with st.sidebar:
     st.subheader("📜 Recent Queries")
     if st.session_state.query_history:
         for i, hist_query in enumerate(reversed(st.session_state.query_history[-5:])):
-            if st.button(f"↻ {hist_query[:35]}...", key=f"hist_{i}", use_container_width=True):
+            # ✅ FIXED: use_container_width → width
+            if st.button(f"↻ {hist_query[:35]}...", key=f"hist_{i}", width='stretch'):
                 st.session_state.trigger_query = hist_query
                 st.rerun()
     else:
@@ -134,28 +142,33 @@ with col1:
     )
 
 with col2:
-    run_query = st.button("🔍 Analyze", type="primary", use_container_width=True)
+    # ✅ FIXED: use_container_width → width
+    run_query = st.button("🔍 Analyze", type="primary", width='stretch')
 
 st.caption("💡 **Try these examples:**")
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
-    if st.button("📧 Total Sends", use_container_width=True):
+    # ✅ FIXED: use_container_width → width
+    if st.button("📧 Total Sends", width='stretch'):
         st.session_state.trigger_query = "What are the total email sends?"
         st.rerun()
 
 with col2:
-    if st.button("📊 Open Rates", use_container_width=True):
+    # ✅ FIXED: use_container_width → width
+    if st.button("📊 Open Rates", width='stretch'):
         st.session_state.trigger_query = "Show me open rates by market"
         st.rerun()
 
 with col3:
-    if st.button("🎯 VCUS Rate", use_container_width=True):
+    # ✅ FIXED: use_container_width → width
+    if st.button("🎯 VCUS Rate", width='stretch'):
         st.session_state.trigger_query = "What is the conversion rate for VCUS?"
         st.rerun()
 
 with col4:
-    if st.button("📈 Click Rates", use_container_width=True):
+    # ✅ FIXED: use_container_width → width
+    if st.button("📈 Click Rates", width='stretch'):
         st.session_state.trigger_query = "Compare click rates across all markets"
         st.rerun()
 
@@ -195,84 +208,53 @@ if query_to_process:
         start_time = time.time()
         
         # ================================================================
-        # STEP 1: Data Query
+        # STEP 1: Data Retrieval
         # ================================================================
         if show_processing:
-            step1.markdown('<div class="step-indicator step-active">🔍 <b>Data Query</b> - Translating to SQL...</div>', unsafe_allow_html=True)
-            progress_bar.progress(0.1)
-            time_estimate.caption("⏱️ Estimated time: 15-40 seconds")
+            step1.markdown('<div class="step-indicator step-active">🔍 <b>Step 1:</b> Querying data...</div>', unsafe_allow_html=True)
+            progress_bar.progress(10)
         
-        # Execute query with monitoring ✅ with_insights enabled
         response = st.session_state.orchestrator.process_query(
             query_to_process,
             with_viz=with_viz,
             with_benchmarks=with_benchmarks,
-            with_insights=with_insights  # ✅ Insights enabled
+            with_insights=with_insights
         )
-        
-        if show_processing:
-            step1.markdown('<div class="step-indicator step-complete">✅ <b>Data Query</b> - Complete</div>', unsafe_allow_html=True)
-            progress_bar.progress(0.35)
-            time.sleep(0.2)
-        
-        # ================================================================
-        # STEP 2: Benchmarks
-        # ================================================================
-        if show_processing and with_benchmarks:
-            step2.markdown('<div class="step-indicator step-complete">✅ <b>Benchmarks</b> - Complete</div>', unsafe_allow_html=True)
-            progress_bar.progress(0.55)
-            time.sleep(0.1)
-        
-        # ================================================================
-        # STEP 3: Insights
-        # ================================================================
-        if show_processing and with_insights:
-            step3.markdown('<div class="step-indicator step-complete">✅ <b>Insights</b> - Generated</div>', unsafe_allow_html=True)
-            progress_bar.progress(0.75)
-            time.sleep(0.1)
-        
-        # ================================================================
-        # STEP 4: Visualization
-        # ================================================================
-        if show_processing and with_viz:
-            step4.markdown('<div class="step-indicator step-complete">✅ <b>Visualization</b> - Ready</div>', unsafe_allow_html=True)
-            progress_bar.progress(0.95)
-            time.sleep(0.1)
         
         elapsed = time.time() - start_time
         
         if show_processing:
-            step1.markdown('<div class="step-indicator step-complete">✅ <b>Complete</b> - All steps finished</div>', unsafe_allow_html=True)
-            progress_bar.progress(1.0)
-            time_estimate.caption(f"⏱️ **Total time:** {elapsed:.2f}s")
-            time.sleep(0.5)
+            if response.get('success'):
+                step1.markdown('<div class="step-indicator step-complete">✅ <b>Step 1:</b> Data retrieved</div>', unsafe_allow_html=True)
+            else:
+                step1.markdown(f'<div class="step-indicator step-error">❌ <b>Step 1:</b> Failed - {response.get("error", "Unknown error")}</div>', unsafe_allow_html=True)
             
-            # Clear processing visualization
-            step2.empty()
-            step3.empty()
-            step4.empty()
-            progress_bar.empty()
-            time_estimate.empty()
+            progress_bar.progress(100)
+            time_estimate.success(f"✅ **Complete** in {elapsed:.2f}s")
+        
+        # Store response in session state
+        st.session_state.last_response = response
         
         # ================================================================
         # DISPLAY RESULTS
         # ================================================================
         if response.get('success'):
-            st.session_state.last_response = response
+            st.success(f"✅ Query completed successfully in {elapsed:.2f}s")
             
-            # Create tabs
-            tab_names = ["📊 Results"]
-            if response.get('sql'):
-                tab_names.append("💾 SQL")
-            if 'visualization' in response:
-                tab_names.append("📈 Chart")
-            if 'benchmarks' in response:
-                tab_names.append("📊 Benchmarks")
-            if 'insights' in response and response['insights']:
-                tab_names.append("💡 Insights")
-            
-            tabs = st.tabs(tab_names)
+            # Determine available tabs
+            available_tabs = ["📊 Results"]
             tab_idx = 0
+            
+            if response.get('sql'):
+                available_tabs.append("💾 SQL")
+            if 'visualization' in response:
+                available_tabs.append("📈 Chart")
+            if 'benchmarks' in response:
+                available_tabs.append("📊 Benchmarks")
+            if 'insights' in response and response['insights']:
+                available_tabs.append("💡 Insights")
+            
+            tabs = st.tabs(available_tabs)
             
             # ================================================================
             # TAB 1: RESULTS
@@ -281,16 +263,16 @@ if query_to_process:
                 tab_idx += 1
                 st.subheader("📊 Query Results")
                 
-                data = response.get('data', [])
-                if data:
-                    df = pd.DataFrame(data)
+                if response.get('data'):
+                    df = pd.DataFrame(response['data'])
                     
-                    # Metrics
+                    # Summary metrics
                     col1, col2, col3, col4 = st.columns(4)
+                    
                     with col1:
-                        st.metric("📊 Total Rows", len(df))
+                        st.metric("Rows", len(df))
                     with col2:
-                        st.metric("📋 Columns", len(df.columns))
+                        st.metric("Columns", len(df.columns))
                     with col3:
                         numeric_cols = df.select_dtypes(include=['number']).columns
                         if len(numeric_cols) > 0:
@@ -302,9 +284,10 @@ if query_to_process:
                     st.divider()
                     
                     # Data table
+                    # ✅ FIXED: use_container_width → width
                     st.dataframe(
                         df,
-                        use_container_width=True,
+                        width='stretch',
                         height=min(400, len(df) * 35 + 38)
                     )
                     
@@ -312,12 +295,13 @@ if query_to_process:
                     col1, col2 = st.columns([1, 4])
                     with col1:
                         csv = df.to_csv(index=False)
+                        # ✅ FIXED: use_container_width → width
                         st.download_button(
                             "⬇️ Download CSV",
                             csv,
                             "results.csv",
                             "text/csv",
-                            use_container_width=True
+                            width='stretch'
                         )
                 else:
                     st.info("📭 No data returned from query")
@@ -349,9 +333,10 @@ if query_to_process:
                     tab_idx += 1
                     st.subheader("📈 Data Visualization")
                     
+                    # ✅ FIXED: use_container_width → width
                     st.plotly_chart(
                         response['visualization'],
-                        use_container_width=True
+                        width='stretch'
                     )
                     
                     st.caption("💡 _Interactive chart - hover for details, click legend to filter_")
@@ -422,7 +407,8 @@ if query_to_process:
                     
                     col1, col2 = st.columns(2)
                     with col1:
-                        if st.button("🔄 Regenerate Insights", use_container_width=True):
+                        # ✅ FIXED: use_container_width → width
+                        if st.button("🔄 Regenerate Insights", width='stretch'):
                             with st.spinner("Regenerating insights..."):
                                 new_response = st.session_state.orchestrator.process_query(
                                     query_to_process,
@@ -437,12 +423,13 @@ if query_to_process:
                     
                     with col2:
                         insights_text = insights.replace('\n', '\n\n')
+                        # ✅ FIXED: use_container_width → width
                         st.download_button(
                             "💾 Download Insights",
                             insights_text,
                             "insights.txt",
                             "text/plain",
-                            use_container_width=True
+                            width='stretch'
                         )
             
             # ================================================================
@@ -485,6 +472,7 @@ with col2:
 with col3:
     st.caption(f"📜 {len(st.session_state.query_history)} queries")
 with col4:
-    if st.button("🗑️ Clear History", use_container_width=True):
+    # ✅ FIXED: use_container_width → width
+    if st.button("🗑️ Clear History", width='stretch'):
         st.session_state.query_history = []
         st.rerun()

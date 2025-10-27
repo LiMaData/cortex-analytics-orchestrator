@@ -1,11 +1,12 @@
 """
 Benchmark Agent - Retrieves industry benchmarks for comparison
 Uses tiered approach: Snowflake tables → LLM → Hardcoded fallbacks
+FIXED: Date type handling to prevent datetime/date mismatch errors
 """
 
 import logging
 from typing import Dict, Any, List, Optional
-from datetime import datetime
+from datetime import datetime, date
 import re
 
 logger = logging.getLogger(__name__)
@@ -176,10 +177,10 @@ class BenchmarkAgent:
                     source_name = str(row['SOURCE'])
                     updated_date = row['UPDATED_DATE']
                     
-                    # Calculate age
+                    # ✅ FIXED: Calculate age with proper date type handling
                     age_days = 0
                     if updated_date:
-                        age_days = (datetime.now() - updated_date).days
+                        age_days = self._calculate_age_days(updated_date)
                     
                     logger.info(f"✅ Successfully fetched benchmarks from database for {metric}")
                     
@@ -202,6 +203,40 @@ class BenchmarkAgent:
         except Exception as e:
             logger.warning(f"⚠️ Database fetch failed: {e}")
             return None
+    
+    def _calculate_age_days(self, updated_date) -> int:
+        """
+        ✅ NEW: Calculate days since last update
+        Handles both datetime and date objects safely
+        
+        Args:
+            updated_date: Either datetime.datetime or datetime.date from database
+            
+        Returns:
+            Number of days since update
+        """
+        try:
+            # Get today as a date object
+            today = date.today()
+            
+            # Convert updated_date to date if it's a datetime
+            if isinstance(updated_date, datetime):
+                updated_date_as_date = updated_date.date()
+            elif isinstance(updated_date, date):
+                updated_date_as_date = updated_date
+            else:
+                # If it's neither, try to parse it
+                logger.warning(f"Unexpected date type: {type(updated_date)}, attempting to parse")
+                updated_date_as_date = datetime.fromisoformat(str(updated_date)).date()
+            
+            # Now both are date objects - safe to subtract
+            age_days = (today - updated_date_as_date).days
+            
+            return age_days
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Could not calculate age: {e}")
+            return 0
     
     def _fetch_from_llm(self, metric: str) -> Optional[Dict[str, Any]]:
         """Generate benchmarks using LLM knowledge"""
@@ -268,7 +303,7 @@ Excellent Threshold: [number]%"""
                     'bottom_quartile': float(numbers[2]),
                     'excellent_threshold': float(numbers[3]),
                     'source_name': 'LLM Knowledge',
-                    'updated_date': str(datetime.now().date()),
+                    'updated_date': str(date.today()),
                     'age_days': 0
                 }
             
@@ -325,7 +360,9 @@ Excellent Threshold: [number]%"""
         # Add metadata
         data['source_name'] = 'Industry Research 2024'
         data['updated_date'] = '2024-01-01'
-        data['age_days'] = (datetime.now() - datetime(2024, 1, 1)).days
+        
+        # ✅ FIXED: Calculate age with proper date handling
+        data['age_days'] = self._calculate_age_days(datetime(2024, 1, 1))
         
         return data
     
@@ -337,7 +374,7 @@ Excellent Threshold: [number]%"""
             'bottom_quartile': 15.0,
             'excellent_threshold': 28.0,
             'source_name': 'Default Values',
-            'updated_date': str(datetime.now().date()),
+            'updated_date': str(date.today()),
             'age_days': 0
         }
     
@@ -381,4 +418,4 @@ Industry benchmarks for {metric_name}:
 """
 
 
-logger.info("✅ BenchmarkAgent class defined ")
+logger.info("✅ BenchmarkAgent class defined successfully")

@@ -1,4 +1,4 @@
-"""Visualization Agent - Creates charts from data (ENHANCED - Full Date Fix + Plotly Config)"""
+"""Visualization Agent - Creates charts from data (IMPROVED - Better Detection Logic)"""
 
 import logging
 import plotly.express as px
@@ -20,284 +20,224 @@ class VisualizationAgent:
         """Create appropriate visualization based on data and question"""
         
         if not data:
+            logger.warning("⚠️ No data provided for visualization")
             return None
         
+        # Convert to DataFrame
         df = pd.DataFrame(data)
+        logger.info(f"📊 Creating visualization for {len(df)} rows, {len(df.columns)} columns")
+        logger.info(f"📊 Columns: {list(df.columns)}")
+        
+        # Convert numeric columns FIRST (critical!)
         df = self._convert_numeric_columns(df)
         
-        # Detect time-based data
+        # Log column types after conversion
+        numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+        categorical_cols = df.select_dtypes(include=['object', 'string']).columns.tolist()
+        logger.info(f"📊 Numeric columns: {numeric_cols}")
+        logger.info(f"📊 Categorical columns: {categorical_cols}")
+        
+        # ✅ PRIORITY 1: Check question context FIRST
+        # If question asks for comparison by category, don't try time-series
+        if question:
+            question_lower = question.lower()
+            
+            # Check for categorical comparison keywords
+            categorical_keywords = ['by market', 'by country', 'by channel', 'by region', 
+                                   'by segment', 'by businessunit', 'per market', 'per country',
+                                   'compare', 'comparison', 'between', 'across']
+            
+            if any(kw in question_lower for kw in categorical_keywords):
+                logger.info("📊 Question indicates categorical comparison → Using BAR chart")
+                
+                # Check for categorical business dimensions in columns
+                business_dims = ['BUSINESSUNIT', 'MARKET', 'COUNTRY_CODE', 'COUNTRY',
+                               'CHANNEL', 'CHANNEL_GROUPING', 'REGION', 'SEGMENT']
+                
+                x_col = None
+                for col in df.columns:
+                    if col.upper() in business_dims:
+                        x_col = col
+                        logger.info(f"   Using {col} as X-axis (categorical dimension)")
+                        break
+                
+                if x_col and numeric_cols:
+                    return self._create_bar_chart(df, x_col=x_col, y_cols=numeric_cols, title=question)
+        
+        # ✅ PRIORITY 2: Detect time-based data (but only if not categorical comparison)
         time_columns = self._detect_time_columns(df)
         
         if time_columns:
+            logger.info(f"📊 Detected time columns: {time_columns}")
             # Create time series chart
             return self._create_time_series_chart(df, time_columns[0], question)
         
-        # Rest of existing logic...
-        numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
-        categorical_cols = df.select_dtypes(include=['object']).columns.tolist()
+        # ✅ PRIORITY 3: Standard logic based on column types
+        if not numeric_cols:
+            logger.warning("⚠️ No numeric columns found for chart")
+            return None
         
         if len(numeric_cols) >= 2:
+            # Multiple numeric columns
             x_col = categorical_cols[0] if categorical_cols else df.columns[0]
-            return self._create_bar_chart(df, x_col=x_col, y_cols=numeric_cols)
+            logger.info(f"📊 Multiple numeric cols → BAR chart with X={x_col}, Y={numeric_cols}")
+            return self._create_bar_chart(df, x_col=x_col, y_cols=numeric_cols, title=question)
+        
         elif len(numeric_cols) == 1:
+            # Single numeric column
             if categorical_cols:
                 x_col = categorical_cols[0]
                 y_col = numeric_cols[0]
-                return self._create_bar_chart(df, x_col=x_col, y_cols=[y_col])
+                logger.info(f"📊 Single numeric col + categorical → BAR chart X={x_col}, Y={y_col}")
+                return self._create_bar_chart(df, x_col=x_col, y_cols=[y_col], title=question)
             else:
                 x_col = df.columns[0]
                 y_col = numeric_cols[0]
-                return self._create_line_chart(df, x_col=x_col, y_col=y_col)
+                logger.info(f"📊 Single numeric col without categorical → LINE chart")
+                return self._create_line_chart(df, x_col=x_col, y_col=y_col, title=question)
         
+        logger.warning("⚠️ Could not determine appropriate chart type")
         return None
 
+    def _convert_numeric_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Convert string numbers to numeric where possible
+        CRITICAL: This must work properly for visualization to succeed
+        """
+        df = df.copy()  # Don't modify original
+        
+        for col in df.columns:
+            if df[col].dtype == 'object' or df[col].dtype == 'string':
+                try:
+                    # Try to convert to numeric
+                    converted = pd.to_numeric(df[col], errors='coerce')
+                    
+                    # Only apply if most values converted successfully
+                    if converted.notna().sum() > len(df) * 0.5:  # At least 50% valid
+                        df[col] = converted
+                        logger.info(f"✅ Converted {col} to numeric (dtype: {df[col].dtype})")
+                    else:
+                        logger.debug(f"   Kept {col} as {df[col].dtype} (too few numeric values)")
+                        
+                except (ValueError, TypeError) as e:
+                    logger.debug(f"   Could not convert {col} to numeric: {e}")
+        
+        return df
+
     def _detect_time_columns(self, df: pd.DataFrame) -> List[str]:
-        """Detect columns that contain time/date data"""
+        """
+        Detect columns that contain time/date data
+        ✅ IMPROVED: Less aggressive, more accurate
+        """
         
         time_columns = []
         
         for col in df.columns:
             col_lower = col.lower()
             
-            # Check column name FIRST
-            if any(keyword in col_lower for keyword in ['date', 'time', 'year', 'month', 'week', 'day', 'quarter']):
+            # ✅ STRICT: Only consider columns with very clear time names
+            clear_time_keywords = ['date', 'datetime', 'timestamp', 'time', 'year', 'month', 'quarter']
+            
+            # Check if column name is clearly a time column
+            if col_lower in clear_time_keywords or col_lower.endswith('_date') or col_lower.startswith('date_'):
                 time_columns.append(col)
-                logger.debug(f"Detected time column by name: {col}")
+                logger.debug(f"✅ Detected time column by name: {col}")
                 continue
             
             # Check data type
             if pd.api.types.is_datetime64_any_dtype(df[col]):
                 time_columns.append(col)
-                logger.debug(f"Detected datetime dtype column: {col}")
+                logger.debug(f"✅ Detected datetime dtype column: {col}")
                 continue
             
-            # Try parsing as date
-            if df[col].dtype == 'object':
-                try:
-                    sample = df[col].dropna().head(1)
-                    if len(sample) > 0:
-                        test_val = sample.iloc[0]
-                        # Quick validation - dates usually have dashes or slashes
-                        if isinstance(test_val, str) and ('-' in test_val or '/' in test_val or len(test_val) == 10):
-                            pd.to_datetime(sample, format='mixed')
-                            time_columns.append(col)
-                            logger.debug(f"Detected parseable date column: {col}")
-                except Exception as e:
-                    logger.debug(f"Could not parse {col} as date: {e}")
-            
-            # Check if numeric but might be Unix timestamp
-            elif pd.api.types.is_numeric_dtype(df[col]):
-                try:
-                    sample = df[col].dropna().head(1)
-                    if len(sample) > 0:
-                        val = sample.iloc[0]
-                        # Unix timestamps are usually > 500000000 (year 1985+)
-                        # and < 5000000000 (year 2128)
-                        if 500000000 < val < 5000000000:
-                            logger.debug(f"Detected potential Unix timestamp column: {col}")
-                            time_columns.append(col)
-                except:
-                    pass
+            # ✅ CAREFUL: Only try parsing if column name suggests it's a date
+            if any(kw in col_lower for kw in ['date', 'time']):
+                # Try parsing as date
+                if df[col].dtype == 'object':
+                    try:
+                        sample = df[col].dropna().head(3)  # Check first 3 values
+                        if len(sample) > 0:
+                            test_val = sample.iloc[0]
+                            # Quick validation - dates usually have dashes or slashes
+                            if isinstance(test_val, str) and ('-' in test_val or '/' in test_val):
+                                pd.to_datetime(sample, format='mixed')
+                                time_columns.append(col)
+                                logger.debug(f"✅ Detected parseable date column: {col}")
+                    except Exception:
+                        pass  # Not a date column
         
         return time_columns
 
     def _create_time_series_chart(self, df: pd.DataFrame, time_col: str, question: str) -> go.Figure:
-        """Create time series line chart (ENHANCED: Unix timestamp + date parsing)"""
+        """Create time series line chart"""
         
         try:
             # Make a copy to avoid modifying original
             df = df.copy()
             
-            # CRITICAL: Handle date conversion carefully
+            # Convert time column to datetime
             try:
                 logger.info(f"Converting {time_col} from dtype={df[time_col].dtype}")
                 
-                # First check if already datetime
                 if not pd.api.types.is_datetime64_any_dtype(df[time_col]):
-                    
-                    # STRATEGY 1: Try ISO format first (YYYY-MM-DD)
+                    # Try ISO format first (YYYY-MM-DD)
                     try:
                         df[time_col] = pd.to_datetime(df[time_col], format='%Y-%m-%d')
-                        logger.info(f"✅ Parsed {time_col} as ISO format (YYYY-MM-DD)")
+                        logger.info(f"✅ Parsed {time_col} as ISO format")
                     except:
-                        # STRATEGY 2: Check if Unix timestamps (numeric)
-                        try:
-                            if pd.api.types.is_numeric_dtype(df[time_col]):
-                                logger.info(f"⚠️ Detected numeric column, attempting Unix timestamp conversion")
-                                # Convert Unix timestamp (seconds) to datetime
-                                df[time_col] = pd.to_datetime(df[time_col], unit='s')
-                                logger.info(f"✅ Converted Unix timestamps to datetime")
-                            else:
-                                raise ValueError("Not numeric")
-                        except:
-                            # STRATEGY 3: Try mixed format
-                            try:
-                                df[time_col] = pd.to_datetime(df[time_col], format='mixed', dayfirst=False)
-                                logger.info(f"✅ Parsed {time_col} as mixed format")
-                            except:
-                                # STRATEGY 4: Last resort - let pandas infer
-                                df[time_col] = pd.to_datetime(df[time_col])
-                                logger.info(f"✅ Parsed {time_col} with inferred format")
+                        # Try mixed format
+                        df[time_col] = pd.to_datetime(df[time_col], format='mixed')
+                        logger.info(f"✅ Parsed {time_col} as mixed format")
                 
-                # Validate dates - check for epoch issue
+                # Validate dates
                 min_date = df[time_col].min()
                 max_date = df[time_col].max()
-                
                 logger.info(f"Date range: {min_date} to {max_date}")
-                
-                # Check if we got epoch dates (1969-1970 range = bad parsing)
-                epoch = pd.Timestamp('1970-01-01')
-                if min_date < epoch and max_date < pd.Timestamp('1975-01-01'):
-                    logger.error(f"⚠️ EPOCH ISSUE DETECTED: Dates are in 1969-1970 range")
-                    logger.error(f"Min: {min_date}, Max: {max_date}")
-                    logger.error(f"Column {time_col} appears to still be Unix timestamp or incorrectly parsed")
-                    
-                    # Try one more time with different units
-                    try:
-                        logger.info("Attempting alternative Unix timestamp conversion...")
-                        # Maybe timestamps are in milliseconds?
-                        df[time_col] = pd.to_datetime(df[time_col], unit='ms')
-                        min_date = df[time_col].min()
-                        max_date = df[time_col].max()
-                        if min_date > pd.Timestamp('2000-01-01'):
-                            logger.info(f"✅ Success with millisecond conversion! New range: {min_date} to {max_date}")
-                        else:
-                            raise ValueError("Still in wrong range")
-                    except Exception as retry_error:
-                        logger.error(f"❌ Alternative conversion failed: {retry_error}")
-                        return self._create_fallback_chart(f"Date parsing failed. Original range: {min_date} to {max_date}")
                 
             except Exception as parse_error:
                 logger.error(f"❌ Failed to parse dates: {parse_error}")
-                return self._create_fallback_chart(f"Date parsing error: {str(parse_error)}")
+                # Fall back to bar chart
+                return self._create_bar_chart(df, x_col=time_col, y_cols=None, title=question)
             
             # Sort by time
             df = df.sort_values(time_col)
             
-            # Get numeric columns to plot
+            # Get numeric columns to plot (re-check after copy)
             numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
             
             if not numeric_cols:
-                logger.warning("⚠️ No numeric columns found for chart")
+                logger.warning("⚠️ No numeric columns found for time series")
                 return None
+            
+            # Create line chart with first numeric column
+            y_col = numeric_cols[0]
             
             fig = go.Figure()
             
-            # Add line for each metric (limit to 3)
-            for col in numeric_cols[:3]:
-                fig.add_trace(go.Scatter(
-                    x=df[time_col],
-                    y=df[col],
-                    mode='lines+markers',
-                    name=col,
-                    line=dict(width=2),
-                    marker=dict(size=6)
-                ))
+            fig.add_trace(go.Scatter(
+                x=df[time_col],
+                y=df[y_col],
+                mode='lines+markers',
+                name=y_col.replace('_', ' ').title(),
+                line=dict(width=3),
+                marker=dict(size=8)
+            ))
             
-            # Determine time granularity for title
-            try:
-                time_range = df[time_col].max() - df[time_col].min()
-                if time_range.days > 365:
-                    granularity = "Yearly"
-                elif time_range.days > 60:
-                    granularity = "Monthly"
-                elif time_range.days > 14:
-                    granularity = "Weekly"
-                else:
-                    granularity = "Daily"
-            except:
-                granularity = "Time Series"
-            
-            # FIXED: Use proper Plotly config parameter instead of deprecated keyword args
             fig.update_layout(
-                title=f"{granularity} Trend: {question}",
+                title=question or "Time Series",
                 xaxis_title=time_col.replace('_', ' ').title(),
-                yaxis_title="Value",
+                yaxis_title=y_col.replace('_', ' ').title(),
+                height=600,
                 hovermode='x unified',
-                template='plotly_white',
-                showlegend=True,
-                height=500,
-                xaxis=dict(
-                    tickformat="%Y-%m-%d",
-                    type='date'
-                )
+                font=dict(size=12)
             )
             
-            # Use proper config instead of deprecated keyword arguments
-            config = {
-                'responsive': True,
-                'displayModeBar': True,
-                'displaylogo': False
-            }
-            
-            logger.info(f"✅ Successfully created time series chart")
             return fig
             
         except Exception as e:
-            logger.error(f"❌ Error creating time series chart: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-            return self._create_fallback_chart(f"Error: {str(e)}")
-    
-    def _create_fallback_chart(self, error_msg: str = None) -> go.Figure:
-        """Create a simple placeholder chart if date parsing fails"""
-        logger.warning(f"⚠️ Creating fallback chart: {error_msg}")
-        
-        fig = go.Figure()
-        msg = error_msg or "⚠️ Unable to parse dates. Please check the date format in your data."
-        fig.add_annotation(
-            text=msg,
-            xref="paper", yref="paper",
-            x=0.5, y=0.5, showarrow=False,
-            font=dict(size=14, color="red")
-        )
-        return fig
-    
-    def _convert_numeric_columns(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Convert string numbers to numeric where possible"""
-        
-        for col in df.columns:
-            if df[col].dtype == 'object':
-                try:
-                    # Try to convert to numeric
-                    df[col] = pd.to_numeric(df[col])
-                except (ValueError, TypeError):
-                    # If conversion fails, keep as is
-                    pass
-        
-        return df
-    
-    def _infer_chart_type(self, df: pd.DataFrame, question: str = None) -> str:
-        """Infer appropriate chart type from data and question"""
-        
-        # Priority 1: Check question keywords
-        if question:
-            question_lower = question.lower()
-            
-            if any(kw in question_lower for kw in ['trend', 'over time', 'time series']):
-                return 'line'
-            elif any(kw in question_lower for kw in ['by market', 'by country', 'by channel', 'comparison']):
-                return 'bar'
-            elif any(kw in question_lower for kw in ['distribution', 'proportion', 'share']):
-                return 'pie'
-        
-        # Priority 2: Check for categorical business dimensions
-        first_col = df.columns[0].upper()
-        categorical_dims = ['BUSINESSUNIT', 'MARKET', 'COUNTRY_CODE', 'COUNTRY',
-                           'CHANNEL', 'CHANNEL_GROUPING', 'REGION', 'SEGMENT']
-        
-        if first_col in categorical_dims:
-            logger.info(f"   Detected categorical dimension: {first_col} → BAR chart")
-            return 'bar'
-        
-        # Priority 3: Check for date columns
-        for col in df.columns:
-            if 'date' in col.lower() or 'time' in col.lower():
-                logger.info(f"   Detected time column: {col} → LINE chart")
-                return 'line'
-        
-        # Default: bar chart
-        return 'bar'
+            logger.error(f"❌ Time series chart creation failed: {e}")
+            # Fall back to bar chart
+            return self._create_bar_chart(df, x_col=df.columns[0], y_cols=None, title=question)
     
     def _create_bar_chart(self, df: pd.DataFrame, x_col: str = None, y_cols: List[str] = None, title: str = None) -> go.Figure:
         """Create bar chart"""
@@ -309,18 +249,15 @@ class VisualizationAgent:
         
         if y_cols is None:
             numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
-            y_cols = numeric_cols if numeric_cols else [df.columns[1] if len(df.columns) > 1 else df.columns[0]]
-        
-        # Use first numeric column if y_cols is empty
-        if not y_cols:
-            numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
             if not numeric_cols:
                 logger.warning("⚠️ No numeric columns found for bar chart")
                 return None
-            y_cols = [numeric_cols[0]]
+            y_cols = numeric_cols
         
-        # Sort by first y column descending
-        y_col = y_cols[0]
+        # Use first numeric column
+        y_col = y_cols[0] if y_cols else df.columns[1]
+        
+        # Sort by y value descending
         df_sorted = df.sort_values(by=y_col, ascending=False)
         
         # Create chart
@@ -334,7 +271,7 @@ class VisualizationAgent:
             color_discrete_sequence=px.colors.qualitative.Set2
         )
         
-        # Format numbers
+        # Format numbers on bars
         max_val = df[y_col].max()
         if max_val > 1000000:
             text_template = '%{text:,.0f}'
@@ -353,7 +290,8 @@ class VisualizationAgent:
             yaxis_title=y_col.replace('_', ' ').title(),
             showlegend=False,
             height=600,
-            font=dict(size=12)
+            font=dict(size=12),
+            xaxis={'categoryorder': 'total descending'}
         )
         
         return fig
@@ -390,37 +328,9 @@ class VisualizationAgent:
         
         return fig
     
-    def _create_pie_chart(self, df: pd.DataFrame, labels_col: str = None, values_col: str = None, title: str = None) -> go.Figure:
-        """Create pie chart for proportions"""
-        
-        # Use defaults if not provided
-        if labels_col is None:
-            categorical_cols = df.select_dtypes(exclude=['number']).columns.tolist()
-            labels_col = categorical_cols[0] if categorical_cols else df.columns[0]
-        
-        if values_col is None:
-            numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
-            if not numeric_cols:
-                logger.warning("⚠️ Need numeric column for pie chart")
-                return self._create_bar_chart(df, x_col=labels_col, title=title)
-            values_col = numeric_cols[0]
-        
-        fig = px.pie(
-            df,
-            names=labels_col,
-            values=values_col,
-            title=title or f"Distribution of {values_col}"
-        )
-        
-        fig.update_traces(textposition='inside', textinfo='percent+label')
-        fig.update_layout(height=600)
-        
-        return fig
-    
     def process(self, data: List[Dict[str, Any]], question: str = None) -> go.Figure:
         """Legacy method - calls create_visualization()"""
-        logger.warning("⚠️ process() is deprecated, use create_visualization() instead")
         return self.create_visualization(data, question=question)
 
 
-logger.info("✅ VisualizationAgent class defined (ENHANCED - Unix timestamp + Plotly config fix)")
+logger.info("✅ VisualizationAgent class defined (IMPROVED - Better detection)")

@@ -242,8 +242,7 @@ class CortexAnalystTool:
             result = self.session.sql(f"""
                 SELECT SNOWFLAKE.CORTEX.COMPLETE(
                     'mistral-large',
-                    '{prompt.replace("'", "''")}',
-                    {{'temperature': 0.1}}
+                    '{prompt.replace("'", "''")}'
                 ) AS sql_text
             """).collect()
             

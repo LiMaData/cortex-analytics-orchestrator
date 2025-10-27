@@ -1,6 +1,7 @@
 """
 Agent Monitor - Tracks AI and internal agent performance
 Provides monitoring for multi-agent orchestration with optional Cortex evaluation
+UPDATED: Includes metrics_history for dashboard compatibility
 """
 
 import logging
@@ -58,6 +59,9 @@ class AgentMonitor:
         self.ai_agent_calls = []
         self.internal_agent_calls = []
         self.orchestrator_calls = []
+        
+        # ✅ NEW: Metrics history for dashboard time-series charts
+        self.metrics_history = []
         
         # Summary statistics
         self.stats = {
@@ -135,6 +139,9 @@ class AgentMonitor:
             else:
                 self.stats['failure_count'] += 1
             
+            # ✅ NEW: Add to metrics history for time-series tracking
+            self._update_metrics_history(agent_name, execution_time, call_record.get('evaluation'))
+            
             logger.debug(f"📊 Tracked AI agent: {agent_name} ({execution_time:.2f}s)")
             
         except Exception as e:
@@ -181,6 +188,9 @@ class AgentMonitor:
             else:
                 self.stats['failure_count'] += 1
             
+            # ✅ NEW: Add to metrics history
+            self._update_metrics_history(agent_name, execution_time, None)
+            
             logger.debug(f"📊 Tracked internal agent: {agent_name}.{operation} ({execution_time:.2f}s)")
             
         except Exception as e:
@@ -222,6 +232,34 @@ class AgentMonitor:
             
         except Exception as e:
             logger.warning(f"⚠️ Failed to track orchestration: {e}")
+    
+    def _update_metrics_history(self, agent_name: str, execution_time: float, evaluation: Dict = None):
+        """
+        ✅ NEW: Update metrics history for time-series tracking
+        
+        Args:
+            agent_name: Name of the agent
+            execution_time: Execution time in seconds
+            evaluation: Optional evaluation results
+        """
+        history_entry = {
+            'timestamp': datetime.now(),
+            'agent_name': agent_name,
+            'execution_time': execution_time,
+        }
+        
+        # Add evaluation scores if available
+        if evaluation:
+            history_entry['relevance_score'] = evaluation.get('relevance_score', 0)
+            history_entry['groundedness_score'] = evaluation.get('groundedness_score', 0)
+            history_entry['coherence_score'] = evaluation.get('coherence_score', 0)
+            history_entry['overall_score'] = evaluation.get('overall_score', 0)
+        
+        self.metrics_history.append(history_entry)
+        
+        # Keep only last 100 entries to prevent memory issues
+        if len(self.metrics_history) > 100:
+            self.metrics_history = self.metrics_history[-100:]
     
     def get_agent_stats(self, agent_name: str = None) -> Dict[str, Any]:
         """
@@ -319,6 +357,7 @@ class AgentMonitor:
         self.ai_agent_calls = []
         self.internal_agent_calls = []
         self.orchestrator_calls = []
+        self.metrics_history = []  # ✅ NEW: Reset metrics history too
         self.stats = {
             'total_queries': 0,
             'total_agent_calls': 0,
