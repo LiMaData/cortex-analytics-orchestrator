@@ -1,6 +1,5 @@
 """
 Streamlit UI for Multi-Agent Analytics Orchestrator
-FIXED: All use_container_width replaced with width='stretch'
 """
 
 import streamlit as st
@@ -64,7 +63,8 @@ logger = logging.getLogger(__name__)
 if 'orchestrator' not in st.session_state:
     with st.spinner("🔧 Initializing orchestrator..."):
         try:
-            st.session_state.orchestrator = ConversationalOrchestrator(enable_monitoring=True)
+            st.session_state.orchestrator = ConversationalOrchestrator(enable_monitoring=True,
+        use_cortex_eval=True)
             st.session_state.query_history = []
             st.session_state.initialized = True
         except Exception as e:
@@ -84,13 +84,17 @@ with st.sidebar:
     # Agent toggles
     st.subheader("🤖 Active Agents")
     
-    # ✅ ADD: DataAgent checkbox (disabled as it's required)
-    st.checkbox("🗃️ Data Agent", value=True, disabled=True, 
-                help="Required - Retrieves data from Snowflake")
+    # ✅ ADD: DataAgent checkbox 
+    use_data_agent = st.checkbox("🗃️ Data Agent", value=True, 
+                             help="Retrieves data from Snowflake (recommended)")
+    # (disabled as it's required)
+    #st.checkbox("🗃️ Data Agent", value=True, disabled=True, 
+                #help="Required - Retrieves data from Snowflake")
     
+    with_viz = st.checkbox("📈 Visualization", value=True, help="Auto-generate charts")
     with_benchmarks = st.checkbox("📊 Benchmarks", value=True, help="Compare to industry standards")
     with_insights = st.checkbox("💡 AI Insights", value=True, help="Generate insights with LLM")
-    with_viz = st.checkbox("📈 Visualization", value=True, help="Auto-generate charts")
+    
     # with_analysis = st.checkbox("📊 Analysis", value=True, help="Perform in-depth analysis")
     
     # Processing visualization toggle
@@ -120,7 +124,7 @@ with st.sidebar:
             stats = status['monitoring_stats']
             st.metric("Queries Run", stats.get('total_queries', 0))
             st.metric("Avg Time", f"{stats.get('avg_query_time', 0):.1f}s")
-            st.metric("Success Rate", f"{stats.get('success_rate', 0):.0f}%")
+            st.metric("Success Rate", f"{stats.get('success_rate', 0):.1f}%")
 
 # ================================================================
 # MAIN HEADER

@@ -1,6 +1,7 @@
 ﻿"""
 Conversational Orchestrator - Interactive Q&A mode with comprehensive monitoring
 Tracks AI agents (TruLens), internal agents (traditional), and coordinates multi-agent workflows
+✅ FIXED: Added use_cortex_eval parameter for Cortex quality evaluation
 """
 
 from typing import Dict, Any
@@ -21,13 +22,14 @@ class ConversationalOrchestrator(BaseOrchestrator):
     - BenchmarkAgent (Hybrid): Database → LLM fallback → Hardcoded
     - VisualizationAgent (Internal): Rule-based chart generation
     """
-    
-    def __init__(self, enable_monitoring: bool = True):
+
+    def __init__(self, enable_monitoring: bool = True, use_cortex_eval: bool = False):
         """
         Initialize conversational orchestrator with all agents and monitoring
         
         Args:
-            enable_monitoring: Whether to enable TruLens and performance monitoring
+            enable_monitoring: Whether to enable performance monitoring
+            use_cortex_eval: Whether to enable Cortex quality evaluation (requires monitoring)
         """
         super().__init__()
         
@@ -55,13 +57,21 @@ class ConversationalOrchestrator(BaseOrchestrator):
         self.insight_agent = InsightAgent(cortex_tool)
         self.benchmark_agent = BenchmarkAgent(cortex_tool)
         
-        # Initialize monitoring
+        # ✅ FIXED: Initialize monitoring with Cortex evaluation support
         self.enable_monitoring = enable_monitoring
+        self.use_cortex_eval = use_cortex_eval  # Store for status reporting
+        
         if enable_monitoring:
             try:
-                from monitoring import get_agent_monitor
-                self.monitor = get_agent_monitor(session=session)
-                logger.info("✅ Monitoring enabled")
+                from monitoring.agent_monitor import AgentMonitor
+                # ✅ FIXED: Pass use_cortex_eval parameter to AgentMonitor
+                self.monitor = AgentMonitor(session=self.session, use_cortex_eval=use_cortex_eval)
+                
+                if use_cortex_eval:
+                    logger.info("✅ Monitoring enabled with Cortex evaluation")
+                else:
+                    logger.info("✅ Monitoring enabled (basic mode)")
+                    
             except Exception as e:
                 logger.warning(f"⚠️ Monitoring initialization failed: {e}")
                 self.monitor = None
@@ -191,46 +201,31 @@ class ConversationalOrchestrator(BaseOrchestrator):
                 benchmark_start = time.time()
                 
                 try:
-                    benchmarks = self.benchmark_agent.process(
-                        query=query,
-                        data=data_result['data']
-                    )
+                    benchmarks = self.benchmark_agent.process(query, data_result['data'])
                     benchmark_time = time.time() - benchmark_start
                     
-                    # ✅ FIX: Extract source BEFORE monitoring check
-                    source = benchmarks.get('source', 'unknown') if benchmarks else 'unknown'
-                    
-                    # Monitor based on source used
+                    # Monitor hybrid agent
                     if self.enable_monitoring and self.monitor:
-                        # If LLM was used, track as AI agent
-                        if source == 'llm':
-                            # 🔧 FIX: Serialize benchmarks
-                            serialized_benchmarks = self._serialize_for_json(benchmarks)
-                            self.monitor.track_ai_agent(
-                                agent_name='BenchmarkAgent',
-                                query=query,
-                                response=serialized_benchmarks,
-                                context=[f"Metric: {benchmarks.get('metric', 'unknown')}"],
-                                execution_time=benchmark_time
-                            )
-                        # If database was used, track as internal agent
-                        else:
-                            self.monitor.track_internal_agent(
-                                agent_name='BenchmarkAgent',
-                                operation='fetch_benchmark',
-                                input_data={'query': query},
-                                output_data=benchmarks,
-                                execution_time=benchmark_time,
-                                success=True
-                            )
+                        # 🔧 FIX: Serialize benchmarks before tracking
+                        serialized_benchmarks = self._serialize_for_json(benchmarks)
+                        self.monitor.track_ai_agent(
+                            agent_name='BenchmarkAgent',
+                            query=query,
+                            response=serialized_benchmarks,
+                            context=[
+                                f"Query returned {len(data_result['data'])} rows",
+                                benchmarks.get('source', 'unknown')
+                            ],
+                            execution_time=benchmark_time
+                        )
                     
                     response['benchmarks'] = benchmarks
                     agents_used.append('BenchmarkAgent')
-                    logger.info(f"✅ Benchmarks fetched ({source})")  # ✅ Now source is always defined!
+                    logger.info(f"✅ Benchmarks fetched from {benchmarks.get('source', 'unknown')}")
                     
                 except Exception as e:
                     benchmark_time = time.time() - benchmark_start
-                    logger.warning(f"⚠️ Benchmark generation failed: {e}")
+                    logger.warning(f"⚠️ Benchmark retrieval failed: {e}")
                     
                     if self.enable_monitoring and self.monitor:
                         self.monitor.track_ai_agent(
@@ -241,12 +236,12 @@ class ConversationalOrchestrator(BaseOrchestrator):
                         )
                     
                     # Don't fail entire query if benchmarks fail
-                    response['benchmark_error'] = str(e)
-
+                    response['benchmarks_error'] = str(e)
+            
             # ================================================================
             # STEP 3: INSIGHT AGENT (AI - LLM for insights)
             # ================================================================
-            if with_insights and len(data_result['data']) > 0:
+            if with_insights:
                 logger.info("💡 Step 3: Generating insights with InsightAgent (AI)")
                 insight_start = time.time()
                 
@@ -258,17 +253,12 @@ class ConversationalOrchestrator(BaseOrchestrator):
                     )
                     insight_time = time.time() - insight_start
                     
-                    # Monitor AI agent
-                    # 🔧 FIX: Serialize data before passing to monitor
+                    # Monitor AI agent with Cortex
                     if self.enable_monitoring and self.monitor:
-                        serialized_insight_response = self._serialize_for_json({
-                            'success': True,
-                            'insights': insights
-                        })
                         self.monitor.track_ai_agent(
                             agent_name='InsightAgent',
                             query=query,
-                            response=serialized_insight_response,
+                            response=insights,
                             context=[
                                 data_result.get('sql', ''),
                                 benchmarks.get('context', '') if benchmarks else ''
@@ -397,6 +387,7 @@ class ConversationalOrchestrator(BaseOrchestrator):
                 return {
                     'initialized': True,
                     'monitoring_enabled': self.enable_monitoring,
+                    'cortex_eval_enabled': self.use_cortex_eval,  # ✅ NEW: Report Cortex status
                     'monitoring_stats': {
                         'total_queries': dashboard_data.get('total_queries', 0),
                         'total_agent_calls': dashboard_data.get('total_agent_calls', 0),
@@ -410,6 +401,7 @@ class ConversationalOrchestrator(BaseOrchestrator):
                 return {
                     'initialized': True,
                     'monitoring_enabled': False,
+                    'cortex_eval_enabled': False,
                     'monitoring_stats': {
                         'total_queries': 0,
                         'avg_query_time': 0,

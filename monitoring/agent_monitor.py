@@ -282,14 +282,17 @@ class AgentMonitor:
             
             total_time = sum(c['execution_time'] for c in all_calls)
             avg_time = total_time / len(all_calls) if all_calls else 0
-            success_rate = sum(1 for c in all_calls if c.get('success', True)) / len(all_calls) if all_calls else 0
+            
+            # ✅ FIXED: Calculate success rate as percentage (0-100)
+            success_rate_decimal = sum(1 for c in all_calls if c.get('success', True)) / len(all_calls) if all_calls else 0
+            success_rate_percentage = success_rate_decimal * 100
             
             stats = {
                 'agent_name': agent_name,
                 'total_calls': len(all_calls),
                 'total_time': round(total_time, 2),
                 'avg_time': round(avg_time, 2),
-                'success_rate': round(success_rate, 2)
+                'success_rate': round(success_rate_percentage, 1)  # ✅ Now returns percentage (0-100)
             }
             
             # Add average evaluation scores if available
@@ -323,8 +326,10 @@ class AgentMonitor:
         total_time = sum(c['total_time'] for c in self.orchestrator_calls)
         avg_query_time = total_time / len(self.orchestrator_calls) if self.orchestrator_calls else 0
         
-        success_rate = (self.stats['success_count'] / 
-                       max(self.stats['total_agent_calls'], 1))
+        # ✅ FIXED: Calculate success rate as percentage (0-100) not decimal (0-1)
+        success_rate_decimal = (self.stats['success_count'] / 
+                               max(self.stats['total_agent_calls'], 1))
+        success_rate_percentage = success_rate_decimal * 100  # Convert to percentage
         
         # Get per-agent statistics
         agent_stats = {}
@@ -336,6 +341,13 @@ class AgentMonitor:
         for agent in all_agents:
             agent_stats[agent] = self.get_agent_stats(agent)
         
+        # ✅ FIXED: Return evaluation_method that matches dashboard expectations
+        # Dashboard expects: 'cortex', 'fallback', or 'unknown'
+        if self.use_cortex_eval and self.evaluator:
+            evaluation_method = 'cortex'
+        else:
+            evaluation_method = 'fallback'
+        
         dashboard = {
             'total_queries': self.stats['total_queries'],
             'total_agent_calls': self.stats['total_agent_calls'],
@@ -343,11 +355,12 @@ class AgentMonitor:
             'internal_agent_calls': self.stats['internal_agent_calls'],
             'success_count': self.stats['success_count'],
             'failure_count': self.stats['failure_count'],
-            'success_rate': round(success_rate, 2),
+            'success_rate': round(success_rate_percentage, 1),  # ✅ Now stores as percentage (0-100)
             'avg_query_time': round(avg_query_time, 2),
             'agent_stats': agent_stats,
             'recent_queries': self.orchestrator_calls[-10:] if self.orchestrator_calls else [],
-            'monitoring_mode': 'CORTEX' if self.use_cortex_eval else 'BASIC'
+            'monitoring_mode': 'CORTEX' if self.use_cortex_eval else 'BASIC',  # Keep for backwards compatibility
+            'evaluation_method': evaluation_method  # ✅ NEW: Dashboard compatibility
         }
         
         return dashboard

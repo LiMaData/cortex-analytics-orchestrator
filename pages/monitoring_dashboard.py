@@ -2,6 +2,7 @@
 Unified monitoring dashboard for Cortex evaluation
 Real-time performance metrics visualization
 ✅ Cortex Evaluation (FREE) - NO TrueLens!
+FIXED: use_container_width → width='stretch'
 """
 
 import streamlit as st
@@ -61,19 +62,17 @@ st.markdown("""
 st.title("📊 Agent Performance Dashboard")
 st.caption("Real-time monitoring with Cortex Quality Evaluation")
 
-# Load orchestrator with monitoring
-@st.cache_resource
-def get_orchestrator():
-    """Initialize orchestrator with monitoring (cached)"""
-    try:
-        return ConversationalOrchestrator(enable_monitoring=True)
-    except Exception as e:
-        st.error(f"Failed to initialize orchestrator: {e}")
-        return None
+# ✅ FIXED: Access orchestrator from main app's session state
+# Don't create a new one - use the existing one with data!
+if 'orchestrator' not in st.session_state:
+    st.error("❌ **No orchestrator found!** Please run queries in the main app first.")
+    st.info("💡 Go to the main 'streamlit app' page and run at least one query, then come back here.")
+    st.stop()
 
-orchestrator = get_orchestrator()
+orchestrator = st.session_state.orchestrator
 
-if not orchestrator:
+if not orchestrator or not orchestrator.monitor:
+    st.error("❌ **Monitoring not enabled!** Please restart the app.")
     st.stop()
 
 monitor = orchestrator.monitor
@@ -145,7 +144,8 @@ with col3:
     auto_refresh = st.checkbox("Auto-refresh", value=False)
 
 with col4:
-    if st.button("🔄 Refresh Now", use_container_width=True):
+    # ✅ FIXED: use_container_width → width
+    if st.button("🔄 Refresh Now", width='stretch'):
         st.rerun()
 
 st.divider()
@@ -234,114 +234,74 @@ with tabs[0]:
                 
                 with col2:
                     success_rate = stats['success_rate']
+                    # ✅ FIXED: success_rate is now stored as percentage (0-100), not decimal (0-1)
                     st.metric(
                         "Success Rate",
-                        f"{success_rate:.1f}%"
+                        f"{success_rate:.1f}%",  # Just add %, don't use .1% format
+                        delta=f"{success_rate - 95:.1f}%" if success_rate < 95 else None
                     )
                 
                 with col3:
-                    st.metric(
-                        "Avg Time",
-                        f"{stats['avg_execution_time']:.2f}s"
-                    )
+                    avg_time = stats['avg_time']
+                    st.metric("Avg Time", f"{avg_time:.2f}s")
                 
                 with col4:
-                    # ✅ NEW: Show quality score if available
-                    if eval_method == 'cortex' and 'avg_quality_score' in stats:
-                        st.metric(
-                            "Avg Quality",
-                            f"{stats['avg_quality_score']:.2f}",
-                            help="Overall quality score (0-1)"
-                        )
-                    else:
-                        st.metric(
-                            "Calls/Session",
-                            stats['total_calls']
-                        )
+                    total_time = stats['total_time']
+                    st.metric("Total Time", f"{total_time:.1f}s")
                 
-                # ✅ NEW: Show detailed quality metrics if Cortex
-                if eval_method == 'cortex':
-                    st.caption("**✅ Cortex Quality Metrics**")
-                    col1, col2, col3 = st.columns(3)
+                # ✅ Quality Metrics (if Cortex)
+                if eval_method == 'cortex' and 'avg_quality_scores' in stats:
+                    st.caption("**Quality Metrics (Cortex)**")
                     
+                    quality = stats['avg_quality_scores']
+                    
+                    col1, col2, col3, col4 = st.columns(4)
                     with col1:
-                        relevance = stats.get('avg_relevance_score', 0.85)
-                        st.metric(
-                            "Avg Relevance",
-                            f"{relevance:.2f}",
-                            help="How relevant is the response to query?"
-                        )
-                    
+                        st.metric("Relevance", f"{quality.get('relevance', 0):.2f}")
                     with col2:
-                        groundedness = stats.get('avg_groundedness_score', 0.90)
-                        st.metric(
-                            "Avg Groundedness",
-                            f"{groundedness:.2f}",
-                            help="Is response grounded in provided data?"
-                        )
-                    
+                        st.metric("Groundedness", f"{quality.get('groundedness', 0):.2f}")
                     with col3:
-                        coherence = stats.get('avg_coherence_score', 0.88)
+                        st.metric("Coherence", f"{quality.get('coherence', 0):.2f}")
+                    with col4:
+                        overall = quality.get('overall', 0)
                         st.metric(
-                            "Avg Coherence",
-                            f"{coherence:.2f}",
-                            help="Is response well-structured and clear?"
+                            "Overall",
+                            f"{overall:.2f}",
+                            delta=f"{overall - 0.8:.2f}" if overall < 0.8 else None
                         )
-                    
-                    # Quality breakdown chart
-                    quality_data = pd.DataFrame({
-                        'Metric': ['Relevance', 'Groundedness', 'Coherence'],
-                        'Score': [
-                            stats.get('avg_relevance_score', 0.85),
-                            stats.get('avg_groundedness_score', 0.90),
-                            stats.get('avg_coherence_score', 0.88)
-                        ]
-                    })
-                    
-                    fig = go.Figure(data=[
-                        go.Bar(x=quality_data['Metric'], y=quality_data['Score'],
-                               marker_color=['#1f77b4', '#ff7f0e', '#2ca02c'])
-                    ])
-                    fig.update_layout(height=300, showlegend=False)
-                    fig.update_yaxes(range=[0, 1])
-                    st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.info("⚠️ Quality metrics unavailable (Cortex not active)")
-            
             else:
-                st.info(f"ℹ️ No data for {agent_name}. Run some queries to see metrics.")
+                st.info(f"ℹ️ No data for {agent_name}")
 
 # TAB 2: INTERNAL AGENTS
 with tabs[1]:
     st.subheader("⚙️ Internal Agent Performance")
-    st.caption("Rule-based agents monitored with traditional metrics")
+    st.caption("🔧 Rule-based agents (no LLM)")
     
     internal_agents = ['VisualizationAgent']
     
     for agent_name in internal_agents:
-        with st.expander(f"📊 {agent_name}", expanded=True):
+        with st.expander(f"🔧 {agent_name}", expanded=True):
             stats = monitor.get_agent_stats(agent_name)
             
             if stats and stats.get('total_calls', 0) > 0:
                 col1, col2, col3, col4 = st.columns(4)
                 
                 with col1:
-                    st.metric("Executions", stats['total_calls'])
+                    st.metric("Total Calls", stats['total_calls'])
                 
                 with col2:
-                    st.metric(
-                        "Success Rate",
-                        f"{stats['success_rate']:.1f}%"
-                    )
+                    success_rate = stats['success_rate']
+                    # ✅ FIXED: success_rate is now percentage (0-100)
+                    st.metric("Success Rate", f"{success_rate:.1f}%")
                 
                 with col3:
-                    st.metric(
-                        "Avg Time",
-                        f"{stats['avg_execution_time']:.3f}s"
-                    )
+                    avg_time = stats['avg_time']
+                    st.metric("Avg Time", f"{avg_time:.2f}s")
                 
                 with col4:
-                    throughput = stats['total_calls'] / stats['total_execution_time'] if stats['total_execution_time'] > 0 else 0
+                    # Calculate throughput
+                    total_execution_time = stats.get('total_time', 0)
+                    throughput = stats['total_calls'] / total_execution_time if total_execution_time > 0 else 0
                     st.metric(
                         "Throughput",
                         f"{throughput:.1f}/s"
@@ -362,7 +322,8 @@ with tabs[1]:
                     title="Performance Scores"
                 )
                 fig.update_layout(showlegend=False, height=300)
-                st.plotly_chart(fig, use_container_width=True)
+                # ✅ FIXED: use_container_width → width
+                st.plotly_chart(fig, width='stretch')
             
             else:
                 st.info(f"ℹ️ No data for {agent_name}")
@@ -400,7 +361,8 @@ with tabs[2]:
                 line_dash="dash",
                 annotation_text="Average"
             )
-            st.plotly_chart(fig, use_container_width=True)
+            # ✅ FIXED: use_container_width → width
+            st.plotly_chart(fig, width='stretch')
         
         with col2:
             fig = px.line(
@@ -415,7 +377,8 @@ with tabs[2]:
                 line_color="red",
                 annotation_text="Target (95%)"
             )
-            st.plotly_chart(fig, use_container_width=True)
+            # ✅ FIXED: use_container_width → width
+            st.plotly_chart(fig, width='stretch')
         
         # Agent usage breakdown
         st.caption("**Agent Usage Distribution**")
@@ -438,7 +401,8 @@ with tabs[2]:
                 names='Agent',
                 title="Agent Usage Distribution"
             )
-            st.plotly_chart(fig, use_container_width=True)
+            # ✅ FIXED: use_container_width → width
+            st.plotly_chart(fig, width='stretch')
     
     else:
         st.info("📊 Run some queries to see system health metrics")
@@ -465,14 +429,15 @@ with tabs[3]:
                     title="Average Execution Time by Agent",
                     labels={'mean': 'Avg Time (s)', 'agent_name': 'Agent'}
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                # ✅ FIXED: use_container_width → width
+                st.plotly_chart(fig, width='stretch')
             
             # ✅ NEW: Quality trend if Cortex
             if eval_method == 'cortex' and 'overall_score' in df.columns:
                 st.caption("**Quality Score Trends (Cortex)**")
                 
-                ai_data = df[df['agent_type'] == 'ai'].copy()
-                if not ai_data.empty and ai_data['overall_score'].notna().any():
+                ai_data = df[df['agent_type'] == 'ai'].copy() if 'agent_type' in df.columns else df.copy()
+                if not ai_data.empty and 'overall_score' in ai_data.columns and ai_data['overall_score'].notna().any():
                     quality_trend = ai_data.groupby(ai_data['timestamp'].dt.date)['overall_score'].mean()
                     
                     if not quality_trend.empty:
@@ -483,7 +448,7 @@ with tabs[3]:
                             labels={'x': 'Date', 'y': 'Quality Score (0-1)'}
                         )
                         fig.add_hline(y=0.8, line_dash="dash", annotation_text="Target (0.80)")
-                        st.plotly_chart(fig, use_container_width=True)
+                        st.plotly_chart(fig, width='stretch')
             
             # Success rate over time
             if 'success' in df.columns:
@@ -497,11 +462,13 @@ with tabs[3]:
                         title="Success Rate Over Time",
                         labels={'x': 'Date', 'y': 'Success Rate (%)'}
                     )
-                    st.plotly_chart(fig, use_container_width=True)
+                    # ✅ FIXED: use_container_width → width
+                    st.plotly_chart(fig, width='stretch')
         
         # Raw data table
         with st.expander("📋 View Raw Metrics"):
-            st.dataframe(df, use_container_width=True)
+            # ✅ FIXED: use_container_width → width
+            st.dataframe(df, width='stretch')
     else:
         st.info("📊 No trend data yet. Run queries to generate metrics.")
 
@@ -551,7 +518,8 @@ st.subheader("📌 Dashboard Actions")
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    if st.button("📥 Export Metrics", use_container_width=True):
+    # ✅ FIXED: use_container_width → width
+    if st.button("📥 Export Metrics", width='stretch'):
         try:
             monitor.export_metrics("agent_metrics.json")
             st.success("✅ Metrics exported to agent_metrics.json")
@@ -559,13 +527,15 @@ with col1:
             st.error(f"❌ Export failed: {e}")
 
 with col2:
-    if st.button("🗑️ Clear Metrics", use_container_width=True):
+    # ✅ FIXED: use_container_width → width
+    if st.button("🗑️ Clear Metrics", width='stretch'):
         monitor.metrics_history = []
         st.success("✅ Metrics cleared")
         st.rerun()
 
 with col3:
-    if st.button("🔄 Force Refresh", use_container_width=True):
+    # ✅ FIXED: use_container_width → width
+    if st.button("🔄 Force Refresh", width='stretch'):
         st.rerun()
 
 # Auto-refresh
