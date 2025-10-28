@@ -65,8 +65,8 @@ class ConversationalOrchestrator(BaseOrchestrator):
             try:
                 from monitoring.agent_monitor import AgentMonitor
                 # ✅ FIXED: Pass use_cortex_eval parameter to AgentMonitor
-                self.monitor = AgentMonitor(session=self.session, use_cortex_eval=use_cortex_eval)
-                
+                self.monitor = AgentMonitor(session=session, use_cortex_eval=use_cortex_eval)
+
                 if use_cortex_eval:
                     logger.info("✅ Monitoring enabled with Cortex evaluation")
                 else:
