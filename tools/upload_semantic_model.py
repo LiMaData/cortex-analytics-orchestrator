@@ -1,53 +1,61 @@
+import os
+from pathlib import Path
+from dotenv import load_dotenv
 from snowflake.snowpark import Session
 
+load_dotenv()
+
 connection_parameters = {
-    "account": "wkswaox-lt08934",
-    "user": "Lima717",
-    "password": "Easy2snowflake!",
-    "role": "ACCOUNTADMIN",
-    "warehouse": "COMPUTE_WH",
-    "database": "CAMPAIGN_ANALYTICS",
-    "schema": "GENERATED_DATA"
+    "account": os.getenv("SNOWFLAKE_ACCOUNT"),
+    "user": os.getenv("SNOWFLAKE_USER"),
+    "password": os.getenv("SNOWFLAKE_PASSWORD"),
+    "role": os.getenv("SNOWFLAKE_ROLE", "ACCOUNTADMIN"),
+    "warehouse": os.getenv("SNOWFLAKE_WAREHOUSE"),
+    "database": os.getenv("SNOWFLAKE_DATABASE", "CAMPAIGN_ANALYTICS"),
+    "schema": os.getenv("SNOWFLAKE_SCHEMA", "GENERATED_DATA")
 }
 
+print("Connecting to Snowflake using environment variables...")
 session = Session.builder.configs(connection_parameters).create()
 print("✅ Connected to Snowflake\n")
 
-# Upload the semantic model
-print("📤 Uploading semantic model...")
-session.file.put(
-    local_file_name="marketing_semantic_model.yaml",  # File in current directory
-    stage_location="@semantic_models/",
-    auto_compress=False,
-    overwrite=True
-)
+# Determine local semantic model path (prefer config/, fallback to tools/)
+local_candidates = [Path("config") / "marketing_semantic_model.yaml", Path("tools") / "marketing_semantic_model.yaml", Path("marketing_semantic_model.yaml")]
+local_path = None
+for p in local_candidates:
+    if p.exists():
+        local_path = p
+        break
 
-print("✅ Upload complete!\n")
+if local_path is None:
+    raise FileNotFoundError("Could not find marketing_semantic_model.yaml in config/, tools/ or repo root")
 
-# Verify it's there
-print("📋 Files in stage:")
+local_path = local_path.resolve()
+print(f"📤 Uploading {local_path} -> @semantic_models (overwrite=True)")
+
+# Force overwrite to ensure latest file is uploaded
+put_results = session.file.put(f"file://{local_path}", "@semantic_models", auto_compress=False, overwrite=True)
+for r in put_results:
+    # r may be a PutResult object; print a safe representation
+    try:
+        status = getattr(r, 'status', None)
+        source = getattr(r, 'source', None)
+        target = getattr(r, 'target', None)
+    except Exception:
+        status = None
+        source = None
+        target = None
+
+    if status is None:
+        # fallback to str
+        print("PUT:", str(r))
+    else:
+        print(f"PUT: {status} {source} -> {target}")
+
+print("\n📋 Files in stage:")
 result = session.sql("LIST @semantic_models/").collect()
 for row in result:
     print(f"  {row['name']} - {row['size']} bytes")
-
-# Preview first 10 lines
-print("\n📄 File preview (first 10 lines):")
-session.sql("""
-    CREATE FILE FORMAT IF NOT EXISTS yaml_format
-    TYPE = 'CSV'
-    FIELD_DELIMITER = NONE
-    RECORD_DELIMITER = NONE
-""").collect()
-
-preview = session.sql("""
-    SELECT $1 AS line
-    FROM @semantic_models/marketing_semantic_model.yaml 
-    (FILE_FORMAT => yaml_format)
-    LIMIT 10
-""").collect()
-
-for row in preview:
-    print(row['LINE'])
 
 session.close()
 print("\n✅ Done!")

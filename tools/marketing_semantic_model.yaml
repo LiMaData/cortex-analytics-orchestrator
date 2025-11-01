@@ -1,9 +1,16 @@
 name: marketing_performance_analytics
 description: Email campaign performance and web conversion tracking
 
-# ============================================================================
-# PHYSICAL COLUMN REFERENCE (Use these EXACT names in SQL)
-# ============================================================================
+# Snowflake environment (for reference)
+# SNOWFLAKE_ACCOUNT=fvqlqib-tj68700
+# SNOWFLAKE_USER=LIMA
+# SNOWFLAKE_PASSWORD=Easy2snowflake!
+# SNOWFLAKE_WAREHOUSE=TEST
+# SNOWFLAKE_DATABASE=PLAYGROUND_LM
+# SNOWFLAKE_SCHEMA=CORTEX_ANALYTICS_ORCHESTRATOR
+# SNOWFLAKE_ROLE=SYSADMIN
+# SEMANTIC_MODEL_STAGE=@semantic_models/marketing_semantic_model.yaml
+
 physical_columns:
   V_FACT_SFMC_SEND_PERFORMANCE_TRACKING:
     dimensions: [BUSINESSUNIT, SENDID, SENDID_COUNTRY_SK]
@@ -15,9 +22,6 @@ physical_columns:
     time: [SESSION_DATE]
     facts: [SESSION_STARTED, PRODUCT_EVENTS, ORDER_ATTEMPT, SQL_LOAD, SQL_SUBMIT]
 
-# ============================================================================
-# VERIFIED QUERY EXAMPLES
-# ============================================================================
 verified_queries:
 # Basic aggregations
 - question: "Total emails sent"
@@ -28,7 +32,6 @@ verified_queries:
     SELECT SUM(SENDS) FROM V_FACT_SFMC_SEND_PERFORMANCE_TRACKING
     WHERE SENDDATE >= DATEADD(month, -1, CURRENT_DATE())
 
-# Rates by dimension
 - question: "Open rates by market"
   sql: |
     SELECT BUSINESSUNIT, 
@@ -43,7 +46,6 @@ verified_queries:
     FROM V_FACT_SFMC_SEND_PERFORMANCE_TRACKING
     GROUP BY BUSINESSUNIT
 
-# Time-based filtering
 - question: "Sends by market this week"
   sql: |
     SELECT BUSINESSUNIT, SUM(SENDS) as total_sends
@@ -59,14 +61,12 @@ verified_queries:
       AND SENDDATE < DATE_TRUNC('month', CURRENT_DATE())
     GROUP BY BUSINESSUNIT
 
-# Specific market filtering
 - question: "Open rate for VCUS"
   sql: |
     SELECT (SUM(UNIQUEOPENS) / NULLIF(SUM(SENDS) - SUM(BOUNCES), 0)) * 100 as open_rate
     FROM V_FACT_SFMC_SEND_PERFORMANCE_TRACKING
     WHERE BUSINESSUNIT = 'VCUS'
 
-# Conversion queries
 - question: "Conversion rate for VCUS this week"
   sql: |
     SELECT (SUM(ORDER_ATTEMPT) / NULLIF(SUM(SESSION_STARTED), 0)) * 100 as conversion_rate
@@ -81,7 +81,6 @@ verified_queries:
     FROM FACT_SFMC_CONVERSION_DIRECT_AGG
     GROUP BY COUNTRY_CODE
 
-# Complex nested queries
 - question: "Average open rate across markets"
   sql: |
     SELECT AVG(market_open_rate) as avg_open_rate
@@ -91,18 +90,17 @@ verified_queries:
       FROM V_FACT_SFMC_SEND_PERFORMANCE_TRACKING
       GROUP BY BUSINESSUNIT
 
-# ============================================================================
-# DETAILED TABLE DEFINITIONS
-# ============================================================================
 tables:
 # Email Performance Table
 - name: V_FACT_SFMC_SEND_PERFORMANCE_TRACKING
   description: Email send performance from Salesforce Marketing Cloud
   base_table:
-    database: CAMPAIGN_ANALYTICS
-    schema: GENERATED_DATA
+    database: PLAYGROUND_LM
+    # previous database: CAMPAIGN_ANALYTICS
+    schema: CORTEX_ANALYTICS_ORCHESTRATOR
+    # previous schema: GENERATED_DATA
     table: V_FACT_SFMC_SEND_PERFORMANCE_TRACKING
-  
+
   dimensions:
     - name: market
       synonyms: ["country", "region", "business unit", "market name"]
@@ -127,66 +125,59 @@ tables:
       data_type: DATE
   
   facts:
-    # FIXED: Removed SUM() from expr, added default_aggregation
     - name: sends
-      expr: SENDS                    # ✅ Physical column only
+      expr: SENDS
       data_type: NUMBER
       default_aggregation: sum
     - name: bounces
-      expr: BOUNCES                  # ✅ Physical column only
+      expr: BOUNCES
       data_type: NUMBER
       default_aggregation: sum
     - name: opens
-      expr: OPENS                    # ✅ Physical column only
+      expr: OPENS
       data_type: NUMBER
       default_aggregation: sum
     - name: unique_opens
-      expr: UNIQUEOPENS              # ✅ Physical column only
+      expr: UNIQUEOPENS
       data_type: NUMBER
       default_aggregation: sum
     - name: clicks
-      expr: CLICKS                   # ✅ Physical column only
+      expr: CLICKS
       data_type: NUMBER
       default_aggregation: sum
     - name: unique_clicks
-      expr: UNIQUECLICKS             # ✅ Physical column only
+      expr: UNIQUECLICKS
       data_type: NUMBER
       default_aggregation: sum
     - name: unsubscribes
-      expr: UNSUBSCRIBES             # ✅ Physical column only
+      expr: UNSUBSCRIBES
       data_type: NUMBER
       default_aggregation: sum
-  
+
   metrics:
-    # FIXED: Use physical column names (UPPERCASE)
     - name: delivery_rate
       description: Percentage of successfully delivered emails
       expr: ((SENDS - BOUNCES) / NULLIF(SENDS, 0)) * 100
-      #       ^^^^^ UPPERCASE physical names
       data_type: NUMBER
       default_aggregation: avg
     - name: open_rate
       description: Percentage of delivered emails that were opened
       expr: (UNIQUEOPENS / NULLIF(SENDS - BOUNCES, 0)) * 100
-      #      ^^^^^^^^^^ UPPERCASE
       data_type: NUMBER
       default_aggregation: avg
     - name: click_rate
       description: Click-through rate (clicks per delivered email)
       expr: (UNIQUECLICKS / NULLIF(SENDS - BOUNCES, 0)) * 100
-      #      ^^^^^^^^^^^^ UPPERCASE
       data_type: NUMBER
       default_aggregation: avg
     - name: click_to_open_rate
       description: Percentage of openers who clicked
       expr: (UNIQUECLICKS / NULLIF(UNIQUEOPENS, 0)) * 100
-      #      ^^^^^^^^^^^           ^^^^^^^^^^^ UPPERCASE
       data_type: NUMBER
       default_aggregation: avg
     - name: unsubscribe_rate
       description: Unsubscribe rate percentage
       expr: (UNSUBSCRIBES / NULLIF(SENDS - BOUNCES, 0)) * 100
-      #      ^^^^^^^^^^^           ^^^^^ UPPERCASE
       data_type: NUMBER
       default_aggregation: avg
 
@@ -194,10 +185,12 @@ tables:
 - name: FACT_SFMC_CONVERSION_DIRECT_AGG
   description: Website conversion funnel metrics and user behavior
   base_table:
-    database: CAMPAIGN_ANALYTICS
-    schema: GENERATED_DATA
+    database: PLAYGROUND_LM
+    # previous database: CAMPAIGN_ANALYTICS
+    schema: CORTEX_ANALYTICS_ORCHESTRATOR
+    # previous schema: GENERATED_DATA
     table: FACT_SFMC_CONVERSION_DIRECT_AGG
-  
+
   dimensions:
     - name: market
       synonyms: ["country", "region", "country code"]
@@ -230,13 +223,12 @@ tables:
       data_type: DATE
   
   facts:
-    # FIXED: Physical columns only, no aggregations in expr
     - name: session_started
-      expr: SESSION_STARTED          # ✅ Physical column only
+      expr: SESSION_STARTED
       data_type: NUMBER
       default_aggregation: sum
     - name: product_events
-      expr: PRODUCT_EVENTS           # ✅ Physical column only
+      expr: PRODUCT_EVENTS
       data_type: NUMBER
       default_aggregation: sum
     - name: financial_selection_review
@@ -260,7 +252,7 @@ tables:
       data_type: NUMBER
       default_aggregation: sum
     - name: order_attempt
-      expr: ORDER_ATTEMPT            # ✅ Physical column only
+      expr: ORDER_ATTEMPT
       data_type: NUMBER
       default_aggregation: sum
     - name: test_drive_request
@@ -275,18 +267,15 @@ tables:
       expr: KEEP_ME_UPDATED
       data_type: NUMBER
       default_aggregation: sum
-  
+
   metrics:
-    # FIXED: Use physical column names
     - name: conversion_rate
       description: Session to order conversion percentage
       expr: (ORDER_ATTEMPT / NULLIF(SESSION_STARTED, 0)) * 100
-      #      ^^^^^^^^^^^^          ^^^^^^^^^^^^^^ UPPERCASE physical names
       data_type: NUMBER
       default_aggregation: avg
     - name: product_engagement_rate
       description: Percentage of sessions with product views
       expr: (PRODUCT_EVENTS / NULLIF(SESSION_STARTED, 0)) * 100
-      #      ^^^^^^^^^^^^^^         ^^^^^^^^^^^^^^ UPPERCASE
       data_type: NUMBER
       default_aggregation: avg

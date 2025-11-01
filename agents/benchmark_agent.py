@@ -201,7 +201,14 @@ class BenchmarkAgent:
                 return None
             
         except Exception as e:
-            logger.warning(f"⚠️ Database fetch failed: {e}")
+            # Detect common "object does not exist" SQL compilation error from Snowflake
+            err_text = str(e)
+            if 'Object' in err_text and 'does not exist' in err_text:
+                # Log at info level because this is an expected missing-table situation
+                logger.info("Benchmarks table 'BENCHMARK_DATA' not found or not authorized. Using fallback benchmarks.")
+            else:
+                logger.warning(f"⚠️ Database fetch failed: {e}")
+
             return None
     
     def _calculate_age_days(self, updated_date) -> int:
