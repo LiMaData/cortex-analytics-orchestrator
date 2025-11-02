@@ -20,7 +20,7 @@ session = Session.builder.configs(connection_parameters).create()
 print("✅ Connected to Snowflake\n")
 
 # Determine local semantic model path (prefer config/, fallback to tools/)
-local_candidates = [Path("config") / "marketing_semantic_model.yaml", Path("tools") / "marketing_semantic_model.yaml", Path("marketing_semantic_model.yaml")]
+local_candidates = [Path("config") / "marketing_semantic_model.yaml"]
 local_path = None
 for p in local_candidates:
     if p.exists():

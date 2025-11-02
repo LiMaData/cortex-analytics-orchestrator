@@ -38,10 +38,26 @@ def main():
         except Exception as e:
             logger.warning(f"Could not explicitly set database/schema: {e}")
 
-        local_path = os.path.abspath("config/marketing_semantic_model.yaml")
-        if not os.path.exists(local_path):
-            logger.error(f"Local file not found: {local_path}")
+        # Prefer config/ but fall back to tools/ if the file is there
+        # Prefer the canonical config/ location for the semantic model
+        candidate_paths = [
+            os.path.abspath("config/marketing_semantic_model.yaml"),
+            os.path.abspath("tools/marketing_semantic_model.yaml")
+        ]
+
+        local_path = None
+        for p in candidate_paths:
+            if os.path.exists(p):
+                local_path = p
+                break
+
+        if not local_path:
+            logger.error(
+                "Local semantic model not found in config/ or tools/."
+                " Add marketing_semantic_model.yaml to config/ or tools/"
+            )
             return
+        logger.info(f"Using semantic model file: {local_path}")
 
         # ensure stage exists (create if needed)
         try:
