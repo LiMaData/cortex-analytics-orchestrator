@@ -1,16 +1,6 @@
 name: marketing_performance_analytics
 description: Email campaign performance and web conversion tracking
 
-# Snowflake environment (for reference)
-# SNOWFLAKE_ACCOUNT=fvqlqib-tj68700
-# SNOWFLAKE_USER=LIMA
-# SNOWFLAKE_PASSWORD=Easy2snowflake!
-# SNOWFLAKE_WAREHOUSE=TEST
-# SNOWFLAKE_DATABASE=PLAYGROUND_LM
-# SNOWFLAKE_SCHEMA=CORTEX_ANALYTICS_ORCHESTRATOR
-# SNOWFLAKE_ROLE=SYSADMIN
-# SEMANTIC_MODEL_STAGE=@semantic_models/marketing_semantic_model.yaml
-
 physical_columns:
   V_FACT_SFMC_SEND_PERFORMANCE_TRACKING:
     dimensions: [BUSINESSUNIT, SENDID, SENDID_COUNTRY_SK]
